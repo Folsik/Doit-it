@@ -1,0 +1,12 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+web
+node_modules
+.next
+coverage
+coverage.out
+*.test
+.DS_Store
