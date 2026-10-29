@@ -2,15 +2,22 @@ package api
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/rand"
+	"crypto/sha256"
 	"errors"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
+	"math"
 	"net/http"
+	"net/mail"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
@@ -50,11 +57,12 @@ const userIDKey contextKey = "userID"
 
 func (s *Server) protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		if h == "" {
-			writeError(w, 401, "unauthorized", "Bearer token required")
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Bearer token required")
 			return
 		}
+		h := parts[1]
 		c, err := s.tokens.Verify(h)
 		if err != nil {
 			writeError(w, 401, "unauthorized", "Invalid or expired access token")
@@ -87,8 +95,13 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
-	if !strings.Contains(in.Email, "@") || len(in.Password) < 12 || len(in.FullName) > 120 {
-		writeError(w, 400, "validation_error", "Valid email, full_name and password of at least 12 characters are required")
+	in.FullName = strings.TrimSpace(in.FullName)
+	parsedEmail, emailErr := mail.ParseAddress(in.Email)
+	if emailErr != nil || parsedEmail.Address != in.Email || len(in.Email) > 254 ||
+		len(in.Password) < 12 || len(in.Password) > 72 ||
+		in.FullName == "" || len(in.FullName) > 120 ||
+		(in.CountryCode != "" && (len(in.CountryCode) != 2 || !asciiLetters(in.CountryCode))) {
+		writeError(w, http.StatusBadRequest, "validation_error", "Provide a valid email, a password of 12-72 bytes, a full name (max 120 characters), and an optional two-letter country code")
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost)
@@ -104,9 +117,15 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 	var id string
-	err = tx.QueryRow(ctx, `INSERT INTO users(email,password_hash,full_name,country_code) VALUES($1,$2,$3,NULLIF($4,'')) RETURNING id`, in.Email, string(hash), strings.TrimSpace(in.FullName), strings.ToUpper(in.CountryCode)).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO users(email,password_hash,full_name,country_code) VALUES($1,$2,$3,NULLIF($4,'')) RETURNING id`, in.Email, string(hash), in.FullName, strings.ToUpper(in.CountryCode)).Scan(&id)
 	if err != nil {
-		writeError(w, 409, "email_exists", "Email is already registered")
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			writeError(w, http.StatusConflict, "email_exists", "Email is already registered")
+		} else {
+			s.logger.Error("register user failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not create user")
+		}
 		return
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO accounts(user_id,name,currency,balance_minor) VALUES($1,'Main account','EUR',0)`, id); err != nil {
@@ -183,8 +202,10 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if len(in.FullName) > 120 || (in.PreferredCurrency != "" && len(in.PreferredCurrency) != 3) || len(in.LanguageCode) > 10 || len(in.CountryCode) > 2 {
-		writeError(w, 400, "validation_error", "Invalid profile fields")
+	in.FullName = strings.TrimSpace(in.FullName)
+	if len(in.FullName) > 120 || (in.PreferredCurrency != "" && (len(in.PreferredCurrency) != 3 || !asciiLetters(in.PreferredCurrency))) ||
+		len(in.LanguageCode) > 10 || (in.CountryCode != "" && (len(in.CountryCode) != 2 || !asciiLetters(in.CountryCode))) {
+		writeError(w, http.StatusBadRequest, "validation_error", "Invalid profile fields")
 		return
 	}
 	_, err := s.db.Exec(r.Context(), `UPDATE users SET full_name=COALESCE(NULLIF($2,''),full_name),country_code=COALESCE(NULLIF($3,''),country_code),preferred_currency=COALESCE(NULLIF($4,''),preferred_currency),language_code=COALESCE(NULLIF($5,''),language_code),updated_at=now() WHERE id=$1`, uid(r), in.FullName, strings.ToUpper(in.CountryCode), strings.ToUpper(in.PreferredCurrency), in.LanguageCode)
@@ -207,7 +228,7 @@ func (s *Server) accounts(w http.ResponseWriter, r *http.Request) {
 		var balance int64
 		var created time.Time
 		if rows.Scan(&id, &name, &currency, &balance, &status, &created) == nil {
-			out = append(out, map[string]any{"id": id, "name": name, "currency": strings.TrimSpace(currency), "balance_minor": balance, "balance": float64(balance) / 100, "status": status, "created_at": created})
+			out = append(out, map[string]any{"id": id, "name": name, "currency": strings.TrimSpace(currency), "balance_minor": balance, "status": status, "created_at": created})
 		}
 	}
 	writeJSON(w, 200, map[string]any{"items": out})
@@ -270,7 +291,7 @@ func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 				signed = -amount
 				title = fromName
 			}
-			items = append(items, map[string]any{"id": id, "reference": ref, "amount_minor": signed, "currency": strings.TrimSpace(currency), "amount": float64(signed) / 100, "title": title, "note": note, "status": status, "created_at": created, "type": map[bool]string{true: "outgoing", false: "incoming"}[fromUser == uid(r)]})
+			items = append(items, map[string]any{"id": id, "reference": ref, "amount_minor": signed, "currency": strings.TrimSpace(currency), "title": title, "note": note, "status": status, "created_at": created, "type": map[bool]string{true: "outgoing", false: "incoming"}[fromUser == uid(r)]})
 		}
 	}
 	writeJSON(w, 200, map[string]any{"items": items, "limit": limit, "offset": offset})
@@ -290,7 +311,7 @@ func (s *Server) transactionDetail(w http.ResponseWriter, r *http.Request) {
 	if fromUser == uid(r) {
 		signed = -amount
 	}
-	writeJSON(w, 200, map[string]any{"id": id, "reference": ref, "amount_minor": signed, "currency": strings.TrimSpace(currency), "amount": float64(signed) / 100, "note": note, "status": status, "created_at": created, "counterparty_account_name": map[bool]string{true: toName, false: fromName}[fromUser == uid(r)]})
+	writeJSON(w, 200, map[string]any{"id": id, "reference": ref, "amount_minor": signed, "currency": strings.TrimSpace(currency), "note": note, "status": status, "created_at": created, "counterparty_account_name": map[bool]string{true: toName, false: fromName}[fromUser == uid(r)]})
 }
 
 type transferRequest struct {
@@ -352,15 +373,66 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if from.balance < in.AmountMinor {
-		writeError(w, 409, "insufficient_funds", "Insufficient funds")
+		writeError(w, http.StatusConflict, "insufficient_funds", "Insufficient funds")
 		return
 	}
-	// Idempotency is recorded as a unique reference. In a real API use a dedicated idempotency table scoped to the user and endpoint.
-	ref := in.IdempotencyKey
+	if to.balance > math.MaxInt64-in.AmountMinor {
+		writeError(w, http.StatusConflict, "balance_limit_exceeded", "Destination balance limit exceeded")
+		return
+	}
+
+	fingerprint := struct {
+		FromAccountID string `json:"from_account_id"`
+		ToAccountID   string `json:"to_account_id"`
+		AmountMinor   int64  `json:"amount_minor"`
+		Currency      string `json:"currency"`
+		Note          string `json:"note"`
+	}{in.FromAccountID, in.ToAccountID, in.AmountMinor, in.Currency, in.Note}
+	fingerprintJSON, _ := json.Marshal(fingerprint)
+	fingerprintSum := sha256.Sum256(fingerprintJSON)
+	requestHash := hex.EncodeToString(fingerprintSum[:])
 	var transferID string
+	idempotencyInsert, err := tx.Exec(ctx, `INSERT INTO transfer_idempotency(user_id,idempotency_key,request_hash) VALUES($1,$2,$3) ON CONFLICT(user_id,idempotency_key) DO NOTHING`, uid(r), in.IdempotencyKey, requestHash)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not record transfer request")
+		return
+	}
+	if idempotencyInsert.RowsAffected() == 0 {
+		var existingHash string
+		var existingID *string
+		err := tx.QueryRow(ctx, `SELECT request_hash,transfer_id::text FROM transfer_idempotency WHERE user_id=$1 AND idempotency_key=$2`, uid(r), in.IdempotencyKey).Scan(&existingHash, &existingID)
+		if err != nil || existingHash != requestHash || existingID == nil {
+			writeError(w, http.StatusConflict, "idempotency_conflict", "This idempotency key was already used with a different request")
+			return
+		}
+		var ref, status, currency, note string
+		var amount int64
+		var created time.Time
+		if err := tx.QueryRow(ctx, `SELECT reference,status,currency,note,amount_minor,created_at FROM transfers WHERE id=$1`, *existingID).Scan(&ref, &status, &currency, &note, &amount, &created); err != nil {
+			writeError(w, http.StatusConflict, "idempotency_conflict", "Original transfer is unavailable")
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not confirm transfer result")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"id": *existingID, "reference": ref, "status": status, "amount_minor": amount, "currency": strings.TrimSpace(currency), "note": note, "created_at": created, "replayed": true})
+		return
+	}
+	refBytes := make([]byte, 16)
+	if _, err := rand.Read(refBytes); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not create transfer reference")
+		return
+	}
+	ref := "TRX-" + strings.ToUpper(hex.EncodeToString(refBytes))
 	err = tx.QueryRow(ctx, `INSERT INTO transfers(reference,from_account_id,to_account_id,amount_minor,currency,note,status) VALUES($1,$2,$3,$4,$5,$6,'completed') RETURNING id`, ref, in.FromAccountID, in.ToAccountID, in.AmountMinor, in.Currency, in.Note).Scan(&transferID)
 	if err != nil {
-		writeError(w, 409, "duplicate_or_invalid_transfer", "This idempotency key may already have been used")
+		s.logger.Error("insert transfer failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not create transfer")
+		return
+	}
+	if _, err = tx.Exec(ctx, `UPDATE transfer_idempotency SET transfer_id=$3 WHERE user_id=$1 AND idempotency_key=$2`, uid(r), in.IdempotencyKey, transferID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not record transfer result")
 		return
 	}
 	if _, err = tx.Exec(ctx, `UPDATE accounts SET balance_minor=balance_minor-$1 WHERE id=$2`, in.AmountMinor, in.FromAccountID); err != nil {
@@ -379,7 +451,7 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "internal_error", "Could not commit transfer")
 		return
 	}
-	writeJSON(w, 201, map[string]any{"id": transferID, "reference": ref, "status": "completed", "amount_minor": in.AmountMinor, "currency": in.Currency, "note": in.Note, "created_at": time.Now().UTC(), "message": "Internal prototype transfer completed; no external payment network was contacted."})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": transferID, "reference": ref, "status": "completed", "amount_minor": in.AmountMinor, "currency": in.Currency, "note": in.Note, "message": "Internal prototype transfer completed; no external payment network was contacted."})
 }
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.Query(r.Context(), `SELECT id,device_name,COALESCE(host(ip_address),''),user_agent,expires_at,created_at FROM sessions WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>now() ORDER BY created_at DESC`, uid(r))
@@ -411,11 +483,25 @@ func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "revoked"})
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	if contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0])); contentType != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json")
+		return false
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		writeError(w, 400, "invalid_json", "Request body is invalid or contains unknown fields")
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds 1 MiB")
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid_json", "Request body is invalid or contains unknown fields")
+		}
+		return false
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body must contain exactly one JSON value")
 		return false
 	}
 	return true
@@ -441,14 +527,56 @@ func recoverer(log *slog.Logger) func(http.Handler) http.Handler {
 		})
 	}
 }
-func requestID(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { next.ServeHTTP(w, r) })
+type responseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
 }
+
+func (w *responseWriter) WriteHeader(status int) {
+	if w.wroteHeader { return }
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *responseWriter) Write(p []byte) (int, error) {
+	if !w.wroteHeader { w.WriteHeader(http.StatusOK) }
+	return w.ResponseWriter.Write(p)
+}
+
+func requestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := make([]byte, 16)
+		if _, err := rand.Read(id); err != nil {
+			id = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+		}
+		requestID := hex.EncodeToString(id)
+		w.Header().Set("X-Request-ID", requestID)
+		next.ServeHTTP(&requestWriterWithID{ResponseWriter: w, requestID: requestID}, r)
+	})
+}
+
+type requestWriterWithID struct {
+	http.ResponseWriter
+	requestID string
+}
+func (w *requestWriterWithID) WriteHeader(status int) {
+	w.Header().Set("X-Request-ID", w.requestID)
+	w.ResponseWriter.WriteHeader(status)
+}
+func (w *requestWriterWithID) Write(p []byte) (int, error) {
+	w.Header().Set("X-Request-ID", w.requestID)
+	return w.ResponseWriter.Write(p)
+}
+
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, POST, PATCH, DELETE")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -456,5 +584,10 @@ func cors(next http.Handler) http.Handler {
 	})
 }
 
-var _ = errors.Is
-var _ = pgx.ErrNoRows
+func asciiLetters(value string) bool {
+	if value == "" { return false }
+	for _, ch := range value {
+		if (ch < 'A' || ch > 'Z') && (ch < 'a' || ch > 'z') { return false }
+	}
+	return true
+}
