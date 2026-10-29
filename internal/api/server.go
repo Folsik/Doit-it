@@ -271,9 +271,12 @@ func (s *Server) accounts(w http.ResponseWriter, r *http.Request) {
 		var id, name, currency, status string
 		var balance int64
 		var created time.Time
-		if rows.Scan(&id, &name, &currency, &balance, &status, &created) == nil {
-			out = append(out, map[string]any{"id": id, "name": name, "currency": strings.TrimSpace(currency), "balance_minor": balance, "status": status, "created_at": created})
+		if err := rows.Scan(&id, &name, &currency, &balance, &status, &created); err != nil {
+			s.logger.Error("scan account failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not load accounts")
+			return
 		}
+		out = append(out, map[string]any{"id": id, "name": name, "currency": strings.TrimSpace(currency), "balance_minor": balance, "status": status, "created_at": created})
 	}
 	if err := rows.Err(); err != nil {
 		s.logger.Error("iterate accounts failed", "error", err)
@@ -294,11 +297,18 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, name, currency, status string
 		var b int64
-		if rows.Scan(&id, &name, &currency, &b, &status) == nil {
-			accounts = append(accounts, map[string]any{"id": id, "name": name, "currency": strings.TrimSpace(currency), "balance_minor": b, "status": status})
-			if currency == "EUR" {
-				total += b
+		if err := rows.Scan(&id, &name, &currency, &b, &status); err != nil {
+			s.logger.Error("scan dashboard account failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not load dashboard")
+			return
+		}
+		accounts = append(accounts, map[string]any{"id": id, "name": name, "currency": strings.TrimSpace(currency), "balance_minor": b, "status": status})
+		if currency == "EUR" {
+			if b > 0 && total > math.MaxInt64-b {
+				writeError(w, http.StatusInternalServerError, "balance_overflow", "Could not calculate total balance")
+				return
 			}
+			total += b
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -343,15 +353,18 @@ func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 		var id, ref, currency, note, status, fromUser, toUser, fromName, toName string
 		var amount int64
 		var created time.Time
-		if rows.Scan(&id, &ref, &amount, &currency, &note, &status, &created, &fromUser, &toUser, &fromName, &toName) == nil {
-			signed := amount
-			title := toName
-			if fromUser == uid(r) {
-				signed = -amount
-				title = fromName
-			}
-			items = append(items, map[string]any{"id": id, "reference": ref, "amount_minor": signed, "currency": strings.TrimSpace(currency), "title": title, "note": note, "status": status, "created_at": created, "type": map[bool]string{true: "outgoing", false: "incoming"}[fromUser == uid(r)]})
+		if err := rows.Scan(&id, &ref, &amount, &currency, &note, &status, &created, &fromUser, &toUser, &fromName, &toName); err != nil {
+			s.logger.Error("scan transaction failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not load transactions")
+			return
 		}
+		signed := amount
+		title := toName
+		if fromUser == uid(r) {
+			signed = -amount
+			title = fromName
+		}
+		items = append(items, map[string]any{"id": id, "reference": ref, "amount_minor": signed, "currency": strings.TrimSpace(currency), "title": title, "note": note, "status": status, "created_at": created, "type": map[bool]string{true: "outgoing", false: "incoming"}[fromUser == uid(r)]})
 	}
 	if err := rows.Err(); err != nil {
 		s.logger.Error("iterate transactions failed", "error", err)
@@ -426,9 +439,19 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 	found := map[string]acct{}
 	for rows.Next() {
 		var a acct
-		if rows.Scan(&a.id, &a.user, &a.currency, &a.balance, &a.status) == nil {
-			found[a.id] = a
+		if err := rows.Scan(&a.id, &a.user, &a.currency, &a.balance, &a.status); err != nil {
+			rows.Close()
+			s.logger.Error("scan transfer account failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not read accounts")
+			return
 		}
+		found[a.id] = a
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		s.logger.Error("iterate transfer accounts failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not read accounts")
+		return
 	}
 	rows.Close()
 	from, ok1 := found[in.FromAccountID]
@@ -537,9 +560,12 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, device, ip, ua string
 		var exp, created time.Time
-		if rows.Scan(&id, &device, &ip, &ua, &exp, &created) == nil {
-			items = append(items, map[string]any{"id": id, "device_name": device, "ip_address": ip, "user_agent": ua, "expires_at": exp, "created_at": created})
+		if err := rows.Scan(&id, &device, &ip, &ua, &exp, &created); err != nil {
+			s.logger.Error("scan session failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not load sessions")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "device_name": device, "ip_address": ip, "user_agent": ua, "expires_at": exp, "created_at": created})
 	}
 	if err := rows.Err(); err != nil {
 		s.logger.Error("iterate sessions failed", "error", err)
