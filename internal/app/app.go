@@ -22,6 +22,17 @@ import (
 func Run() error {
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	if strings.EqualFold(cfg.Env, "production") {
+		if strings.TrimSpace(cfg.JWTPrivateKey) == "" {
+			return errors.New("JWT_PRIVATE_KEY is required in production; provide a base64url-encoded Ed25519 private key")
+		}
+		if strings.Contains(cfg.DatabaseURL, "doit_dev_password") {
+			return errors.New("development database credentials are not allowed in production")
+		}
+		if !strings.Contains(cfg.DatabaseURL, "sslmode=verify-full") {
+			return errors.New("production DATABASE_URL must use sslmode=verify-full")
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -40,8 +51,6 @@ func Run() error {
 	var tokens *auth.Manager
 	if strings.TrimSpace(cfg.JWTPrivateKey) != "" {
 		tokens, err = auth.NewManagerFromPrivateKey(cfg.JWTIssuer, cfg.AccessTokenTTL, cfg.JWTPrivateKey)
-	} else if strings.EqualFold(cfg.Env, "production") {
-		return errors.New("JWT_PRIVATE_KEY is required in production; provide a base64url-encoded Ed25519 private key")
 	} else {
 		logger.Warn("JWT_PRIVATE_KEY is unset; generated signing key will change on restart (development only)")
 		tokens, err = auth.NewManager(cfg.JWTIssuer, cfg.AccessTokenTTL)
