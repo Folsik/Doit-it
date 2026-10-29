@@ -16,7 +16,7 @@ type Config struct {
 
 func Load() Config {
 	ttl, err := time.ParseDuration(get("ACCESS_TOKEN_TTL", "15m"))
-	if err != nil || ttl <= 0 || ttl > time.Hour {
+	if err != nil || ttl < time.Minute || ttl > time.Hour {
 		ttl = 15 * time.Minute
 	}
 	return Config{
