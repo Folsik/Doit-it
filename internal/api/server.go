@@ -49,7 +49,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/transfers", s.protect(http.HandlerFunc(s.transfer)))
 	mux.Handle("GET /v1/security/sessions", s.protect(http.HandlerFunc(s.sessions)))
 	mux.Handle("DELETE /v1/security/sessions/{id}", s.protect(http.HandlerFunc(s.revokeSession)))
-	return requestID(recoverer(s.logger)(cors(mux)))
+	return requestID(recoverer(s.logger)(securityHeaders(mux)))
 }
 
 type contextKey string
@@ -646,37 +646,18 @@ func requestID(next http.Handler) http.Handler {
 		if _, err := rand.Read(id); err != nil {
 			id = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
 		}
-		requestID := hex.EncodeToString(id)
-		w.Header().Set("X-Request-ID", requestID)
-		next.ServeHTTP(&requestWriterWithID{ResponseWriter: w, requestID: requestID}, r)
+		w.Header().Set("X-Request-ID", hex.EncodeToString(id))
+		next.ServeHTTP(w, r)
 	})
 }
 
-type requestWriterWithID struct {
-	http.ResponseWriter
-	requestID string
-}
-func (w *requestWriterWithID) WriteHeader(status int) {
-	w.Header().Set("X-Request-ID", w.requestID)
-	w.ResponseWriter.WriteHeader(status)
-}
-func (w *requestWriterWithID) Write(p []byte) (int, error) {
-	w.Header().Set("X-Request-ID", w.requestID)
-	return w.ResponseWriter.Write(p)
-}
-
-func cors(next http.Handler) http.Handler {
+func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		w.Header().Set("Cache-Control", "no-store")
-		if r.Method == http.MethodOptions {
-			w.Header().Set("Allow", "GET, POST, PATCH, DELETE")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
 		next.ServeHTTP(w, r)
 	})
 }
