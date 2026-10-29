@@ -21,7 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/your-org/doit-backend/internal/auth"
+	"github.com/folsik/doit-it/internal/auth"
 )
 
 type Server struct {
@@ -372,15 +372,6 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "currency_mismatch", "Both accounts must use the transfer currency")
 		return
 	}
-	if from.balance < in.AmountMinor {
-		writeError(w, http.StatusConflict, "insufficient_funds", "Insufficient funds")
-		return
-	}
-	if to.balance > math.MaxInt64-in.AmountMinor {
-		writeError(w, http.StatusConflict, "balance_limit_exceeded", "Destination balance limit exceeded")
-		return
-	}
-
 	fingerprint := struct {
 		FromAccountID string `json:"from_account_id"`
 		ToAccountID   string `json:"to_account_id"`
@@ -399,16 +390,16 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 	}
 	if idempotencyInsert.RowsAffected() == 0 {
 		var existingHash string
-		var existingID *string
+		var existingID string
 		err := tx.QueryRow(ctx, `SELECT request_hash,transfer_id::text FROM transfer_idempotency WHERE user_id=$1 AND idempotency_key=$2`, uid(r), in.IdempotencyKey).Scan(&existingHash, &existingID)
-		if err != nil || existingHash != requestHash || existingID == nil {
+		if err != nil || existingHash != requestHash || existingID == "" {
 			writeError(w, http.StatusConflict, "idempotency_conflict", "This idempotency key was already used with a different request")
 			return
 		}
 		var ref, status, currency, note string
 		var amount int64
 		var created time.Time
-		if err := tx.QueryRow(ctx, `SELECT reference,status,currency,note,amount_minor,created_at FROM transfers WHERE id=$1`, *existingID).Scan(&ref, &status, &currency, &note, &amount, &created); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT reference,status,currency,note,amount_minor,created_at FROM transfers WHERE id=$1`, existingID).Scan(&ref, &status, &currency, &note, &amount, &created); err != nil {
 			writeError(w, http.StatusConflict, "idempotency_conflict", "Original transfer is unavailable")
 			return
 		}
@@ -416,7 +407,15 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal_error", "Could not confirm transfer result")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"id": *existingID, "reference": ref, "status": status, "amount_minor": amount, "currency": strings.TrimSpace(currency), "note": note, "created_at": created, "replayed": true})
+		writeJSON(w, http.StatusOK, map[string]any{"id": existingID, "reference": ref, "status": status, "amount_minor": amount, "currency": strings.TrimSpace(currency), "note": note, "created_at": created, "replayed": true})
+		return
+	}
+	if from.balance < in.AmountMinor {
+		writeError(w, http.StatusConflict, "insufficient_funds", "Insufficient funds")
+		return
+	}
+	if to.balance > math.MaxInt64-in.AmountMinor {
+		writeError(w, http.StatusConflict, "balance_limit_exceeded", "Destination balance limit exceeded")
 		return
 	}
 	refBytes := make([]byte, 16)
