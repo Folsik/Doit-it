@@ -160,6 +160,8 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]any{"user": map[string]any{"id": id, "email": in.Email, "full_name": in.FullName, "country_code": strings.ToUpper(in.CountryCode), "preferred_currency": "EUR", "language_code": "en"}, "access_token": token, "token_type": "Bearer", "expires_at": exp, "notice": "Prototype account only; no real funds or regulated banking services are connected."})
 }
 
+const dummyBcryptHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -172,8 +174,18 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	var id, hash string
 	err := s.db.QueryRow(r.Context(), `SELECT id,password_hash FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(in.Email))).Scan(&id, &hash)
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil {
-		writeError(w, 401, "invalid_credentials", "Email or password is incorrect")
+	if errors.Is(err, pgx.ErrNoRows) {
+		_ = bcrypt.CompareHashAndPassword([]byte(dummyBcryptHash), []byte(in.Password))
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Email or password is incorrect")
+		return
+	}
+	if err != nil {
+		s.logger.Error("login lookup failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not log in")
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil {
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Email or password is incorrect")
 		return
 	}
 	token, exp, err := s.tokens.Issue(id)
@@ -297,6 +309,11 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"total_balance_minor": total, "currency": "EUR", "accounts": accounts, "spending_this_month_minor": 0, "recent_transactions": []any{}, "note": "Dashboard spending analytics will populate as transaction categories are added."})
 }
 func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
+	statusFilter := r.URL.Query().Get("status")
+	if statusFilter != "" && statusFilter != "completed" && statusFilter != "rejected" {
+		writeError(w, http.StatusBadRequest, "validation_error", "status must be completed or rejected")
+		return
+	}
 	limit := 50
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, e := strconv.Atoi(v)
@@ -351,7 +368,12 @@ func (s *Server) transactionDetail(w http.ResponseWriter, r *http.Request) {
 	var fromUser, toUser string
 	err := s.db.QueryRow(r.Context(), `SELECT t.reference,t.amount_minor,t.currency,t.note,t.status,t.created_at,a1.user_id,a2.user_id,a1.name,a2.name FROM transfers t JOIN accounts a1 ON a1.id=t.from_account_id JOIN accounts a2 ON a2.id=t.to_account_id WHERE t.id=$1 AND (a1.user_id=$2 OR a2.user_id=$2)`, id, uid(r)).Scan(&ref, &amount, &currency, &note, &status, &created, &fromUser, &toUser, &fromName, &toName)
 	if err != nil {
-		writeError(w, 404, "not_found", "Transaction not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not_found", "Transaction not found")
+		} else {
+			s.logger.Error("load transaction detail failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not load transaction")
+		}
 		return
 	}
 	signed := amount
@@ -411,8 +433,8 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 	rows.Close()
 	from, ok1 := found[in.FromAccountID]
 	to, ok2 := found[in.ToAccountID]
-	if !ok1 || !ok2 || from.user != uid(r) || to.status != "active" || from.status != "active" {
-		writeError(w, 404, "account_not_found", "Source or destination account is unavailable")
+	if !ok1 || !ok2 || from.user != uid(r) {
+		writeError(w, http.StatusNotFound, "account_not_found", "Source or destination account is unavailable")
 		return
 	}
 	if from.currency != in.Currency || to.currency != in.Currency {
@@ -455,6 +477,10 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"id": existingID, "reference": ref, "status": status, "amount_minor": amount, "currency": strings.TrimSpace(currency), "note": note, "created_at": created, "replayed": true})
+		return
+	}
+	if from.status != "active" || to.status != "active" {
+		writeError(w, http.StatusConflict, "account_unavailable", "Source or destination account is not active")
 		return
 	}
 	if from.balance < in.AmountMinor {
@@ -578,22 +604,6 @@ func recoverer(log *slog.Logger) func(http.Handler) http.Handler {
 		})
 	}
 }
-type responseWriter struct {
-	http.ResponseWriter
-	wroteHeader bool
-}
-
-func (w *responseWriter) WriteHeader(status int) {
-	if w.wroteHeader { return }
-	w.wroteHeader = true
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *responseWriter) Write(p []byte) (int, error) {
-	if !w.wroteHeader { w.WriteHeader(http.StatusOK) }
-	return w.ResponseWriter.Write(p)
-}
-
 func requestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := make([]byte, 16)
