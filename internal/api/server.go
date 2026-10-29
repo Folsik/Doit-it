@@ -375,6 +375,10 @@ func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) transactionDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if !validUUID(id) {
+		writeError(w, http.StatusNotFound, "not_found", "Transaction not found")
+		return
+	}
 	var ref, currency, note, status, fromName, toName string
 	var amount int64
 	var created time.Time
@@ -411,7 +415,7 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Currency = strings.ToUpper(in.Currency)
-	if in.FromAccountID == "" || in.ToAccountID == "" || in.FromAccountID == in.ToAccountID || in.AmountMinor <= 0 || in.Currency != "EUR" || len(in.Note) > 140 || len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 100 {
+	if !validUUID(in.FromAccountID) || !validUUID(in.ToAccountID) || in.FromAccountID == in.ToAccountID || in.AmountMinor <= 0 || in.Currency != "EUR" || len(in.Note) > 140 || len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 100 {
 		writeError(w, 400, "validation_error", "Provide distinct account IDs, positive amount_minor, EUR currency, note <= 140 chars and idempotency_key (8-100 chars)")
 		return
 	}
@@ -575,6 +579,10 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
+	if !validUUID(r.PathValue("id")) {
+		writeError(w, http.StatusNotFound, "not_found", "Session not found")
+		return
+	}
 	tag, err := s.db.Exec(r.Context(), `UPDATE sessions SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`, r.PathValue("id"), uid(r))
 	if err != nil {
 		writeError(w, 500, "internal_error", "Could not revoke session")
@@ -670,6 +678,21 @@ func cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func validUUID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	for i, ch := range value {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			continue
+		}
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func asciiLetters(value string) bool {
