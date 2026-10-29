@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -29,8 +30,13 @@ func Run() error {
 		if strings.Contains(cfg.DatabaseURL, "doit_dev_password") {
 			return errors.New("development database credentials are not allowed in production")
 		}
-		if !strings.Contains(cfg.DatabaseURL, "sslmode=verify-full") {
-			return errors.New("production DATABASE_URL must use sslmode=verify-full")
+		databaseURL, err := url.Parse(cfg.DatabaseURL)
+		if err != nil || databaseURL.Scheme != "postgres" && databaseURL.Scheme != "postgresql" {
+			return errors.New("production DATABASE_URL must be a valid PostgreSQL URL")
+		}
+		sslModes := databaseURL.Query()["sslmode"]
+		if len(sslModes) != 1 || sslModes[0] != "verify-full" {
+			return errors.New("production DATABASE_URL must set exactly one sslmode=verify-full parameter")
 		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
