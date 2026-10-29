@@ -1,94 +1,103 @@
 # Doit Backend — Go MVP scaffold
 
-A Go-only backend starter for a mobile-first, EU-oriented personal-finance app. It exposes a JSON REST API for a future iOS/Android/web client. The starter is intentionally a **modular monolith**: one deployable Go service, PostgreSQL as the persistent store.
+A Go-only backend starter for a mobile-first, EU-oriented personal-finance app. It exposes a JSON REST API for future iOS, Android and web clients. The application is a modular monolith with PostgreSQL as its persistent store.
 
-> **Not a real bank / not production-ready.** Transfers are internal prototype ledger movements only. No SEPA, card issuer, open-banking, KYC/AML, sanctions-screening, safeguarding, licensing, external payment processor, push notification provider, or real funds are connected. Do not accept customer money or deploy with real users/funds in this state.
+> **Prototype only — not a real bank and not production-ready.** Transfers are internal prototype ledger movements. No SEPA, card issuer, open banking, KYC/AML, sanctions screening, safeguarding, licensing, external payment processor or real funds are connected. Do not accept customer money or deploy with real users/funds.
 
-## Included
+## Stack
 
-- Go `net/http` API (Go 1.23+)
-- PostgreSQL schema and automatic migrations
-- Password hashing with bcrypt
-- Short-lived Ed25519-signed JWT access tokens
-- Registration/login, profile, dashboard, accounts, transaction history/details, internal transfers
-- Basic session listing/revocation endpoints (session creation/refresh and token revocation still need implementation)
+- Go 1.23+ and standard net/http
+- PostgreSQL + pgx
+- SQL migrations embedded in the binary
+- bcrypt password hashing
+- Ed25519-signed short-lived JWT access tokens
+- User-scoped idempotency for internal transfer requests
 - Docker Compose for local development
 
-## Run locally
+## Run
 
-```bash
-cp .env.example .env
-# Start PostgreSQL only; if you use Docker Compose for both services, `docker compose up --build` is enough.
-docker compose up --build
-```
+### Docker Compose
 
-API listens at `http://localhost:8080`. Check `GET /healthz`.
+    docker compose up --build
 
-## Quick test
+The API listens on http://localhost:8080. Check health with curl http://localhost:8080/healthz.
 
-```bash
-curl -s http://localhost:8080/healthz
-curl -s -X POST http://localhost:8080/v1/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"demo@example.com","password":"change-this-password-123","full_name":"Demo User","country_code":"DE"}'
-```
+The Dockerfile builds the root main.go entrypoint. You can also run the app directly from the repository root after starting PostgreSQL:
 
-Copy the returned `access_token` into `Authorization: Bearer <token>` for protected endpoints.
+    cp .env.example .env
+    # Set the variables from .env in your shell
+    go run .
+
+### Quick test
+
+    curl -s http://localhost:8080/healthz
+    curl -s -X POST http://localhost:8080/v1/auth/register \
+      -H 'Content-Type: application/json' \
+      -d '{"email":"demo@example.com","password":"change-this-password-123","full_name":"Demo User","country_code":"DE"}'
+
+Use the returned access_token as Authorization: Bearer <token> for protected endpoints.
 
 ## API outline
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/healthz` | Health check + database ping |
-| POST | `/v1/auth/register` | Create user and empty EUR account |
-| POST | `/v1/auth/login` | Verify credentials and issue access token |
-| POST | `/v1/auth/logout` | Prototype logout response (does not revoke token yet) |
-| GET | `/v1/me` | Current profile |
-| PATCH | `/v1/me` | Update profile preferences |
-| GET | `/v1/dashboard` | Balance summary for home screen |
-| GET | `/v1/accounts` | Accounts and balances |
-| GET | `/v1/transactions?limit=50&offset=0&status=completed` | Transaction history |
-| GET | `/v1/transactions/{id}` | Transaction details |
-| POST | `/v1/transfers` | Internal transfer between two accounts owned by different users |
-| GET | `/v1/security/sessions` | List active sessions (empty until session persistence is wired into auth) |
-| DELETE | `/v1/security/sessions/{id}` | Revoke persisted session |
+| GET | /healthz | Health check + database ping |
+| POST | /v1/auth/register | Create user and empty EUR account |
+| POST | /v1/auth/login | Verify credentials and issue access token |
+| POST | /v1/auth/logout | Revoke current access token until expiry |
+| GET | /v1/me | Current profile |
+| PATCH | /v1/me | Update profile preferences |
+| GET | /v1/dashboard | Balance summary for home screen |
+| GET | /v1/accounts | Accounts and balances in minor units |
+| GET | /v1/transactions?limit=50&offset=0&status=completed | Transaction history |
+| GET | /v1/transactions/{id} | Transaction details |
+| POST | /v1/transfers | Internal transfer between accounts |
+| GET | /v1/security/sessions | List persisted sessions (currently no session issuance flow) |
+| DELETE | /v1/security/sessions/{id} | Revoke a persisted session |
 
 ### Internal transfer body
 
-```json
-{
-  "from_account_id": "<source-account-uuid>",
-  "to_account_id": "<destination-account-uuid>",
-  "amount_minor": 1250,
-  "currency": "EUR",
-  "note": "Dinner",
-  "idempotency_key": "client-generated-unique-key-001"
-}
-```
+    {
+      "from_account_id": "<source-account-uuid>",
+      "to_account_id": "<destination-account-uuid>",
+      "amount_minor": 1250,
+      "currency": "EUR",
+      "note": "Dinner",
+      "idempotency_key": "client-generated-unique-key-001"
+    }
 
-Amounts are integers in minor units (EUR cents); never use floating point for money in business logic. The current transfer implementation is a prototype and needs a dedicated idempotency table, audit trail, stronger recipient ownership rules, transaction limits, risk controls, and independent review before production.
+Amounts are integers in minor units (EUR cents); money values are not represented as floating-point numbers by the API. Repeating the same key and request returns the original result; reusing a key with a different request returns a conflict. This is still a prototype ledger, not an external payment service.
 
-## Security and production gaps to close
+## Configuration
 
-1. Persist and rotate Ed25519 JWT keys; currently generated at process startup so tokens become invalid after restart. Use a KMS/HSM or secret manager.
-2. Implement refresh-token rotation, server-side session creation/revocation, device metadata, logout semantics, MFA enrollment/challenge/recovery, and rate limits.
-3. Add email verification, password reset, login throttling, breached-password checks, audit events, secrets management, TLS, observability, backups and disaster recovery.
-4. Harden transfer logic with a dedicated idempotency table scoped to user+endpoint, ledger invariants, account ownership/recipient checks, limits, fraud/risk checks and concurrency tests.
-5. Add API contract/OpenAPI, unit/integration tests, CI, dependency scanning and threat modeling.
-6. For EU launch, obtain qualified legal/compliance advice on licensing/partner-bank model, PSD2/PSD3/PSR applicability, AML/KYC, GDPR, sanctions, SEPA/payment-provider integration and safeguarding. Eligibility should be based on applicable law and documented risk policy, not a blanket citizenship heuristic.
+See .env.example. Important settings:
 
-## Architecture
+- DATABASE_URL: PostgreSQL connection string.
+- HTTP_ADDR: listen address, default :8080.
+- ACCESS_TOKEN_TTL: short-lived access token TTL, default 15m, maximum 1h.
+- JWT_ISSUER: issuer claim for access tokens.
+- JWT_PRIVATE_KEY: base64url-encoded 64-byte Ed25519 private key. Optional in development; **required when APP_ENV=production**. Keep it in a secret manager, never in source control. Development without this key generates an ephemeral key and invalidates tokens on restart.
 
-```text
-Mobile clients (iOS / Android) + Web client
-                  |
-              HTTPS / JSON
-                  |
-          Go REST API (modular monolith)
-          |       |       |       |
-         Auth   Accounts Transactions Profile/Security
-                  |
-              PostgreSQL
-```
+The HTTP server does not terminate TLS. Production deployments must run behind a correctly configured TLS-terminating reverse proxy or load balancer and use a secure database connection.
 
-Redis, NATS/Kafka and external payment providers should be introduced only when requirements justify them. For a first MVP, Postgres transactions provide a simpler and safer starting point for internal ledger consistency.
+## Security improvements in this branch
+
+- Strict Bearer token parsing and JWT header/claim validation.
+- Persistent Ed25519 key configuration for production.
+- Access-token revocation on logout.
+- JSON content-type enforcement, unknown-field rejection, trailing JSON rejection and a 1 MiB body limit.
+- Input validation for registration/profile fields and generic invalid-credential responses with a dummy bcrypt check for unknown users.
+- User-scoped transfer idempotency, deterministic account locking, integer money amounts and destination-balance overflow protection.
+- Security response headers, request IDs and graceful HTTP shutdown.
+- SQL migrations for transfer idempotency and revoked tokens.
+
+## Remaining gaps before production
+
+1. Implement refresh-token rotation, durable login sessions, device management and MFA enrollment/challenge/recovery.
+2. Add distributed rate limiting, email verification, password reset, breached-password checks, and abuse monitoring.
+3. Add comprehensive unit/integration/concurrency tests, API contract/OpenAPI, CI security scanning and dependency updates.
+4. Add audit events, monitoring, backups, disaster recovery and managed secret/key rotation.
+5. Add fraud/risk controls, transfer limits, robust double-entry ledger reconciliation and independent security review.
+6. For an EU launch, obtain qualified legal/compliance advice on licensing/partner-bank model, PSD2/PSD3/PSR applicability, AML/KYC, GDPR, sanctions, SEPA/payment-provider integration and safeguarding.
+
+Redis, NATS/Kafka and separate microservices should be introduced only when product and scale requirements justify them. For the current MVP, PostgreSQL transactions provide a simpler starting point.
