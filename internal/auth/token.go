@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -48,6 +49,10 @@ func NewManagerFromPrivateKey(issuer string, ttl time.Duration, encoded string) 
 	}
 	if len(key) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("JWT_PRIVATE_KEY must decode to %d bytes", ed25519.PrivateKeySize)
+	}
+	derived := ed25519.NewKeyFromSeed(key[:ed25519.SeedSize])
+	if !bytes.Equal(derived, key) {
+		return nil, errors.New("JWT_PRIVATE_KEY is not a valid Ed25519 private key")
 	}
 	return newManager(issuer, ttl, ed25519.PrivateKey(key))
 }
