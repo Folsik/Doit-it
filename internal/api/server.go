@@ -497,7 +497,8 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ref := "TRX-" + strings.ToUpper(hex.EncodeToString(refBytes))
-	err = tx.QueryRow(ctx, `INSERT INTO transfers(reference,from_account_id,to_account_id,amount_minor,currency,note,status) VALUES($1,$2,$3,$4,$5,$6,'completed') RETURNING id`, ref, in.FromAccountID, in.ToAccountID, in.AmountMinor, in.Currency, in.Note).Scan(&transferID)
+	var createdAt time.Time
+	err = tx.QueryRow(ctx, `INSERT INTO transfers(reference,from_account_id,to_account_id,amount_minor,currency,note,status) VALUES($1,$2,$3,$4,$5,$6,'completed') RETURNING id,created_at`, ref, in.FromAccountID, in.ToAccountID, in.AmountMinor, in.Currency, in.Note).Scan(&transferID, &createdAt)
 	if err != nil {
 		s.logger.Error("insert transfer failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Could not create transfer")
@@ -523,7 +524,7 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "internal_error", "Could not commit transfer")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": transferID, "reference": ref, "status": "completed", "amount_minor": in.AmountMinor, "currency": in.Currency, "note": in.Note, "message": "Internal prototype transfer completed; no external payment network was contacted."})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": transferID, "reference": ref, "status": "completed", "amount_minor": in.AmountMinor, "currency": in.Currency, "note": in.Note, "created_at": createdAt, "message": "Internal prototype transfer completed; no external payment network was contacted."})
 }
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.Query(r.Context(), `SELECT id,device_name,COALESCE(host(ip_address),''),user_agent,expires_at,created_at FROM sessions WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>now() ORDER BY created_at DESC`, uid(r))
