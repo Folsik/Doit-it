@@ -201,7 +201,8 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "Token claims are missing")
 		return
 	}
-	_, err := s.db.Exec(r.Context(), `INSERT INTO revoked_tokens(jti,expires_at) VALUES($1,to_timestamp($2)) ON CONFLICT(jti) DO NOTHING`, claims.TokenID, claims.ExpiresAt)
+	expiresAt := time.Unix(claims.ExpiresAt, 0).UTC()
+	_, err := s.db.Exec(r.Context(), `INSERT INTO revoked_tokens(jti,expires_at) VALUES($1,$2) ON CONFLICT(jti) DO NOTHING`, claims.TokenID, expiresAt)
 	if err != nil {
 		s.logger.Error("revoke access token failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Could not log out")
