@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"testing"
 	"time"
 )
@@ -30,5 +33,29 @@ func TestVerifyRejectsMalformedTokens(t *testing.T) {
 func TestPrivateKeyMustHaveCorrectLength(t *testing.T) {
 	if _, err := NewManagerFromPrivateKey("doit-test", time.Minute, "aW52YWxpZA"); err == nil {
 		t.Fatal("expected invalid private key to be rejected")
+	}
+}
+
+func TestPersistentPrivateKeyWorksAcrossManagers(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(privateKey)
+	issuer := "doit-test"
+	first, err := NewManagerFromPrivateKey(issuer, time.Minute, encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewManagerFromPrivateKey(issuer, time.Minute, encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := first.Issue("user-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.Verify(token); err != nil {
+		t.Fatalf("token signed by first manager should verify with the same key: %v", err)
 	}
 }
