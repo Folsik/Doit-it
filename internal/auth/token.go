@@ -61,8 +61,8 @@ func newManager(issuer string, ttl time.Duration, private ed25519.PrivateKey) (*
 	if strings.TrimSpace(issuer) == "" {
 		return nil, errors.New("JWT issuer must not be empty")
 	}
-	if ttl <= 0 || ttl > time.Hour {
-		return nil, errors.New("JWT TTL must be greater than zero and no more than one hour")
+	if ttl < time.Minute || ttl > time.Hour {
+		return nil, errors.New("JWT TTL must be at least one minute and no more than one hour")
 	}
 	if len(private) != ed25519.PrivateKeySize {
 		return nil, errors.New("invalid Ed25519 private key")
