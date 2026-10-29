@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
@@ -53,7 +54,10 @@ func (s *Server) Handler() http.Handler {
 
 type contextKey string
 
-const userIDKey contextKey = "userID"
+const (
+	userIDKey contextKey = "userID"
+	tokenClaimsKey contextKey = "tokenClaims"
+)
 
 func (s *Server) protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,12 +67,24 @@ func (s *Server) protect(next http.Handler) http.Handler {
 			return
 		}
 		h := parts[1]
-		c, err := s.tokens.Verify(h)
+		claims, err := s.tokens.Verify(h)
 		if err != nil {
-			writeError(w, 401, "unauthorized", "Invalid or expired access token")
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid or expired access token")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userIDKey, c.Subject)))
+		var revoked bool
+		if err := s.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM revoked_tokens WHERE jti=$1 AND expires_at>now())`, claims.TokenID).Scan(&revoked); err != nil {
+			s.logger.Error("token revocation check failed", "error", err)
+			writeError(w, http.StatusServiceUnavailable, "unavailable", "Authentication service temporarily unavailable")
+			return
+		}
+		if revoked {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Access token has been revoked")
+			return
+		}
+		ctx := context.WithValue(r.Context(), userIDKey, claims.Subject)
+		ctx = context.WithValue(ctx, tokenClaimsKey, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 func uid(r *http.Request) string { v, _ := r.Context().Value(userIDKey).(string); return v }
@@ -168,13 +184,29 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"access_token": token, "token_type": "Bearer", "expires_at": exp})
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]string{"status": "ok", "message": "Access token expires automatically; server-side revocation is not implemented in this prototype"})
+	claims, ok := r.Context().Value(tokenClaimsKey).(auth.Claims)
+	if !ok || claims.TokenID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Token claims are missing")
+		return
+	}
+	_, err := s.db.Exec(r.Context(), `INSERT INTO revoked_tokens(jti,expires_at) VALUES($1,to_timestamp($2)) ON CONFLICT(jti) DO NOTHING`, claims.TokenID, claims.ExpiresAt)
+	if err != nil {
+		s.logger.Error("revoke access token failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not log out")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
 }
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	var u userDTO
 	err := s.db.QueryRow(r.Context(), `SELECT id,email,full_name,COALESCE(country_code,''),preferred_currency,language_code,two_factor_enabled,created_at FROM users WHERE id=$1`, uid(r)).Scan(&u.ID, &u.Email, &u.FullName, &u.CountryCode, &u.PreferredCurrency, &u.LanguageCode, &u.TwoFactorEnabled, &u.CreatedAt)
 	if err != nil {
-		writeError(w, 404, "not_found", "User not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not_found", "User not found")
+		} else {
+			s.logger.Error("load profile failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Could not load profile")
+		}
 		return
 	}
 	writeJSON(w, 200, u)
@@ -231,7 +263,12 @@ func (s *Server) accounts(w http.ResponseWriter, r *http.Request) {
 			out = append(out, map[string]any{"id": id, "name": name, "currency": strings.TrimSpace(currency), "balance_minor": balance, "status": status, "created_at": created})
 		}
 	}
-	writeJSON(w, 200, map[string]any{"items": out})
+	if err := rows.Err(); err != nil {
+		s.logger.Error("iterate accounts failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not load accounts")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.Query(r.Context(), `SELECT id,name,currency,balance_minor,status FROM accounts WHERE user_id=$1 ORDER BY created_at`, uid(r))
@@ -252,7 +289,12 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{"total_balance_minor": total, "currency": "EUR", "accounts": accounts, "spending_this_month_minor": 0, "recent_transactions": []any{}, "note": "Dashboard spending analytics will populate as transaction categories are added."})
+	if err := rows.Err(); err != nil {
+		s.logger.Error("iterate dashboard accounts failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not load dashboard")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_balance_minor": total, "currency": "EUR", "accounts": accounts, "spending_this_month_minor": 0, "recent_transactions": []any{}, "note": "Dashboard spending analytics will populate as transaction categories are added."})
 }
 func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 	limit := 50
@@ -294,7 +336,12 @@ func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]any{"id": id, "reference": ref, "amount_minor": signed, "currency": strings.TrimSpace(currency), "title": title, "note": note, "status": status, "created_at": created, "type": map[bool]string{true: "outgoing", false: "incoming"}[fromUser == uid(r)]})
 		}
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "limit": limit, "offset": offset})
+	if err := rows.Err(); err != nil {
+		s.logger.Error("iterate transactions failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not load transactions")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "limit": limit, "offset": offset})
 }
 func (s *Server) transactionDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -467,7 +514,12 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]any{"id": id, "device_name": device, "ip_address": ip, "user_agent": ua, "expires_at": exp, "created_at": created})
 		}
 	}
-	writeJSON(w, 200, map[string]any{"items": items})
+	if err := rows.Err(); err != nil {
+		s.logger.Error("iterate sessions failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not load sessions")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
 	tag, err := s.db.Exec(r.Context(), `UPDATE sessions SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`, r.PathValue("id"), uid(r))
