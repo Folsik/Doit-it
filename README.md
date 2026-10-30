@@ -42,7 +42,14 @@ Use the returned access_token as Authorization: Bearer <token> for protected end
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | /healthz | Health check + database ping |
-| GET | /v1/onboarding/countries | Initial supported EU phone regions |\n| POST | /v1/onboarding/send-otp | Request phone verification code (development delivery only) |\n| POST | /v1/onboarding/verify-otp | Verify OTP and receive short-lived setup token |\n| POST | /v1/onboarding/set-pin | Create phone-first user with a six-digit app PIN |\n| POST | /v1/auth/phone-login | Sign in with phone number and app PIN |\n| PUT | /v1/me/email | Add optional email to authenticated profile |\n| POST | /v1/cards/choose | Select Visa/Mastercard prototype and open EUR account |\n| POST | /v1/auth/register | Legacy email/password registration (compatibility) |
+| GET | /v1/onboarding/countries | Initial supported EU phone regions |
+| POST | /v1/onboarding/send-otp | Request phone verification code (development delivery only) |
+| POST | /v1/onboarding/verify-otp | Verify OTP and receive short-lived setup token |
+| POST | /v1/onboarding/set-pin | Create phone-first user with a six-digit app PIN |
+| POST | /v1/auth/phone-login | Sign in with phone number and app PIN |
+| PUT | /v1/me/email | Add optional email to authenticated profile |
+| POST | /v1/cards/choose | Select Visa/Mastercard prototype and open EUR account |
+| POST | /v1/auth/register | Legacy email/password registration (compatibility) |
 | POST | /v1/auth/login | Verify credentials and issue access token |
 | POST | /v1/auth/logout | Revoke current access token until expiry |
 | GET | /v1/me | Current profile |
