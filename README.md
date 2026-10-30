@@ -42,7 +42,7 @@ Use the returned access_token as Authorization: Bearer <token> for protected end
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | /healthz | Health check + database ping |
-| POST | /v1/auth/register | Create user and empty EUR account |
+| GET | /v1/onboarding/countries | Initial supported EU phone regions |\n| POST | /v1/onboarding/send-otp | Request phone verification code (development delivery only) |\n| POST | /v1/onboarding/verify-otp | Verify OTP and receive short-lived setup token |\n| POST | /v1/onboarding/set-pin | Create phone-first user with a six-digit app PIN |\n| POST | /v1/auth/phone-login | Sign in with phone number and app PIN |\n| PUT | /v1/me/email | Add optional email to authenticated profile |\n| POST | /v1/cards/choose | Select Visa/Mastercard prototype and open EUR account |\n| POST | /v1/auth/register | Legacy email/password registration (compatibility) |
 | POST | /v1/auth/login | Verify credentials and issue access token |
 | POST | /v1/auth/logout | Revoke current access token until expiry |
 | GET | /v1/me | Current profile |
@@ -68,7 +68,20 @@ Use the returned access_token as Authorization: Bearer <token> for protected end
 
 Amounts are integers in minor units (EUR cents); money values are not represented as floating-point numbers by the API. Repeating the same key and request returns the original result; reusing a key with a different request returns a conflict. This is still a prototype ledger, not an external payment service.
 
-## Configuration
+
+## Phone-first onboarding (prototype)
+
+The initial supported phone-region list is an explicit EU product-availability allowlist. It currently excludes Russia and Belarus, but **it is not a sanctions screening engine and does not decide eligibility based on nationality**. Production eligibility must additionally assess residence, identity, beneficial ownership, counterparties and transactions against the applicable sanctions and AML rules.
+
+1. Fetch `GET /v1/onboarding/countries` and let the user select a supported country/phone calling code.
+2. Send `POST /v1/onboarding/send-otp` with `{"country_code":"DE","phone_e164":"+4915112345678"}`.
+3. Verify `POST /v1/onboarding/verify-otp` with `{"challenge_id":"<uuid>","code":"<six digits>"}`.
+4. Set the app PIN with `POST /v1/onboarding/set-pin` and `{"verification_token":"<short-lived token>","pin":"482915"}`. PINs consisting of one repeated digit or ascending/descending sequences are rejected. The PIN is bcrypt-hashed and login failures are throttled.
+5. The response includes an access token. Email is optional and can be added with authenticated `PUT /v1/me/email`.
+6. On the home screen, choose `visa` or `mastercard` using authenticated `POST /v1/cards/choose`. The backend atomically creates an EUR account and a card-issuance request record.
+
+In local development the OTP is returned as `development_code` and written to the development log. **Production OTP sending is deliberately disabled** until an SMS provider is integrated. Never expose the development code in a production client. Card selection creates a prototype issuance request only; actual card issuance requires a licensed issuer/programme and provider integration. This flow does not perform KYC, sanctions screening, age checks or regulated account-opening checks.
+\n## Configuration
 
 See .env.example. Important settings:
 
