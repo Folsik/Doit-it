@@ -10,12 +10,13 @@ type Config struct {
 	HTTPAddr       string
 	DatabaseURL    string
 	JWTIssuer      string
+	JWTPrivateKey  string
 	AccessTokenTTL time.Duration
 }
 
 func Load() Config {
 	ttl, err := time.ParseDuration(get("ACCESS_TOKEN_TTL", "15m"))
-	if err != nil || ttl <= 0 {
+	if err != nil || ttl < time.Minute || ttl > time.Hour {
 		ttl = 15 * time.Minute
 	}
 	return Config{
@@ -23,9 +24,11 @@ func Load() Config {
 		HTTPAddr:       get("HTTP_ADDR", ":8080"),
 		DatabaseURL:    get("DATABASE_URL", "postgres://doit:doit_dev_password@localhost:5432/doit?sslmode=disable"),
 		JWTIssuer:      get("JWT_ISSUER", "doit-api"),
+		JWTPrivateKey:  get("JWT_PRIVATE_KEY", ""),
 		AccessTokenTTL: ttl,
 	}
 }
+
 func get(k, fallback string) string {
 	if v := os.Getenv(k); v != "" {
 		return v

@@ -1,4 +1,4 @@
-module github.com/your-org/doit-backend
+module github.com/folsik/doit-it
 
 go 1.23.0
 
