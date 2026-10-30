@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -214,7 +215,8 @@ func (s *Server) addOptionalEmail(w http.ResponseWriter,r *http.Request) {
 	var in optionalEmailRequest
 	if !decode(w,r,&in) { return }
 	in.Email=strings.ToLower(strings.TrimSpace(in.Email))
-	if _,err:=mail.ParseAddress(in.Email); err!=nil || len(in.Email)>254 { writeError(w,400,"validation_error","Enter a valid email address"); return }
+	parsed,parseErr:=mail.ParseAddress(in.Email)
+	if parseErr!=nil || parsed.Address!=in.Email || len(in.Email)>254 { writeError(w,400,"validation_error","Enter a valid email address"); return }
 	tag,err:=s.db.Exec(r.Context(),`UPDATE users SET email=$2,updated_at=now() WHERE id=$1`,uid(r),in.Email)
 	if err!=nil {
 		var pgErr *pgconn.PgError
@@ -248,7 +250,7 @@ func (s *Server) chooseCard(w http.ResponseWriter,r *http.Request) {
 
 func findOnboardingCountry(code string)(supportedCountry,bool){ for _,c:=range onboardingCountries { if c.Code==code{return c,true} }; return supportedCountry{},false }
 func countryForPhone(phone string) string { best:=""; code:=""; for _,c:=range onboardingCountries { if strings.HasPrefix(phone,c.CallingCode)&&len(c.CallingCode)>len(best){best=c.CallingCode;code=c.Code} }; return code }
-func otpHash(challenge,code string) string { sum:=sha256.Sum256([]byte(challenge+":"+code)); return hex.EncodeToString(sum[:]) }
+func otpHash(challenge,code string) string { key:=os.Getenv("OTP_HASH_SECRET"); if key=="" { key="doit-local-development-otp-hash-secret" }; mac:=hmac.New(sha256.New,[]byte(key)); _,_=mac.Write([]byte(challenge+":"+code)); return hex.EncodeToString(mac.Sum(nil)) }
 func phoneSuffix(phone string) string { if len(phone)<4{return "****"}; return phone[len(phone)-4:] }
 func digitsOnly(v string) bool { for _,r:=range v { if r<'0'||r>'9'{return false} }; return true }
 func validPIN(pin string) bool {
