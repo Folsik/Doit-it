@@ -127,7 +127,7 @@ func (s *Server) verifyPhoneOTP(w http.ResponseWriter, r *http.Request) {
 	err = tx.QueryRow(ctx, `SELECT phone_e164,code_hash,attempts,expires_at,consumed_at FROM phone_otp_challenges WHERE id=$1 FOR UPDATE`, in.ChallengeID).Scan(&phone,&storedHash,&attempts,&expires,&consumed)
 	if errors.Is(err, pgx.ErrNoRows) { writeError(w, 400, "invalid_code", "Verification code is invalid or expired"); return }
 	if err != nil { writeError(w, 500, "internal_error", "Could not verify code"); return }
-	if consumed.Valid || time.Now().After(expires) || attempts >= 5 || storedHash != otpHash(in.ChallengeID,in.Code) {
+	if consumed.Valid || time.Now().After(expires) || attempts >= 5 || !hmac.Equal([]byte(storedHash), []byte(otpHash(in.ChallengeID,in.Code))) {
 		if !consumed.Valid && attempts < 5 {
 			_, _ = tx.Exec(ctx, `UPDATE phone_otp_challenges SET attempts=LEAST(attempts+1,5) WHERE id=$1`, in.ChallengeID)
 			_ = tx.Commit(ctx)
@@ -196,7 +196,15 @@ func (s *Server) phoneLogin(w http.ResponseWriter,r *http.Request) {
 	}
 	var id,hash string
 	err:=s.db.QueryRow(ctx,`SELECT id,app_pin_hash FROM users WHERE phone_e164=$1`,in.PhoneE164).Scan(&id,&hash)
-	if errors.Is(err,pgx.ErrNoRows) || err==nil && bcrypt.CompareHashAndPassword([]byte(hash),[]byte(in.PIN))!=nil {
+	if errors.Is(err,pgx.ErrNoRows) {
+		_ = bcrypt.CompareHashAndPassword([]byte(dummyBcryptHash), []byte(in.PIN))
+		_,_=s.db.Exec(ctx,`INSERT INTO pin_login_attempts(phone_e164,failed_attempts,updated_at) VALUES($1,1,now())
+			ON CONFLICT(phone_e164) DO UPDATE SET failed_attempts=pin_login_attempts.failed_attempts+1,
+			locked_until=CASE WHEN pin_login_attempts.failed_attempts+1>=5 THEN now()+interval '15 minutes' ELSE pin_login_attempts.locked_until END,
+			updated_at=now()`,in.PhoneE164)
+		writeError(w,401,"invalid_credentials","Phone number or PIN is incorrect"); return
+	}
+	if err==nil && bcrypt.CompareHashAndPassword([]byte(hash),[]byte(in.PIN))!=nil {
 		_,_=s.db.Exec(ctx,`INSERT INTO pin_login_attempts(phone_e164,failed_attempts,updated_at) VALUES($1,1,now())
 			ON CONFLICT(phone_e164) DO UPDATE SET failed_attempts=pin_login_attempts.failed_attempts+1,
 			locked_until=CASE WHEN pin_login_attempts.failed_attempts+1>=5 THEN now()+interval '15 minutes' ELSE pin_login_attempts.locked_until END,
