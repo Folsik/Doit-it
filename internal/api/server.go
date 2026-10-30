@@ -13,6 +13,7 @@ import (
 	"math"
 	"net/http"
 	"net/mail"
+	"net/mail"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,13 @@ func New(db *pgxpool.Pool, tokens *auth.Manager, logger *slog.Logger) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /v1/onboarding/countries", s.onboardingCountries)
+	mux.HandleFunc("POST /v1/onboarding/send-otp", s.sendPhoneOTP)
+	mux.HandleFunc("POST /v1/onboarding/verify-otp", s.verifyPhoneOTP)
+	mux.HandleFunc("POST /v1/onboarding/set-pin", s.setAppPIN)
+	mux.HandleFunc("POST /v1/auth/phone-login", s.phoneLogin)
+	mux.Handle("PUT /v1/me/email", s.protect(http.HandlerFunc(s.addOptionalEmail)))
+	mux.Handle("POST /v1/cards/choose", s.protect(http.HandlerFunc(s.chooseCard)))
 	mux.HandleFunc("POST /v1/auth/register", s.register)
 	mux.HandleFunc("POST /v1/auth/login", s.login)
 	mux.Handle("POST /v1/auth/logout", s.protect(http.HandlerFunc(s.logout)))
@@ -212,7 +220,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	var u userDTO
-	err := s.db.QueryRow(r.Context(), `SELECT id,email,full_name,COALESCE(country_code,''),preferred_currency,language_code,two_factor_enabled,created_at FROM users WHERE id=$1`, uid(r)).Scan(&u.ID, &u.Email, &u.FullName, &u.CountryCode, &u.PreferredCurrency, &u.LanguageCode, &u.TwoFactorEnabled, &u.CreatedAt)
+	err := s.db.QueryRow(r.Context(), `SELECT id,COALESCE(email,''),full_name,COALESCE(country_code,''),preferred_currency,language_code,two_factor_enabled,created_at FROM users WHERE id=$1`, uid(r)).Scan(&u.ID, &u.Email, &u.FullName, &u.CountryCode, &u.PreferredCurrency, &u.LanguageCode, &u.TwoFactorEnabled, &u.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "User not found")
