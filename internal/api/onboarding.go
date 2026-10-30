@@ -184,12 +184,25 @@ func (s *Server) phoneLogin(w http.ResponseWriter,r *http.Request) {
 	var in phoneLoginRequest
 	if !decode(w,r,&in) { return }
 	if !e164Pattern.MatchString(in.PhoneE164) || len(in.PIN)!=6 || !digitsOnly(in.PIN) { writeError(w,400,"validation_error","Phone and six-digit PIN are required"); return }
+	ctx:=r.Context()
+	var lockedUntil sql.NullTime
+	if err:=s.db.QueryRow(ctx,`SELECT locked_until FROM pin_login_attempts WHERE phone_e164=$1`,in.PhoneE164).Scan(&lockedUntil); err!=nil && !errors.Is(err,pgx.ErrNoRows) {
+		writeError(w,500,"internal_error","Could not log in"); return
+	}
+	if lockedUntil.Valid && time.Now().Before(lockedUntil.Time) {
+		writeError(w,http.StatusTooManyRequests,"login_temporarily_locked","Too many incorrect PIN attempts. Try again later."); return
+	}
 	var id,hash string
-	err:=s.db.QueryRow(r.Context(),`SELECT id,app_pin_hash FROM users WHERE phone_e164=$1`,in.PhoneE164).Scan(&id,&hash)
+	err:=s.db.QueryRow(ctx,`SELECT id,app_pin_hash FROM users WHERE phone_e164=$1`,in.PhoneE164).Scan(&id,&hash)
 	if errors.Is(err,pgx.ErrNoRows) || err==nil && bcrypt.CompareHashAndPassword([]byte(hash),[]byte(in.PIN))!=nil {
+		_,_=s.db.Exec(ctx,`INSERT INTO pin_login_attempts(phone_e164,failed_attempts,updated_at) VALUES($1,1,now())
+			ON CONFLICT(phone_e164) DO UPDATE SET failed_attempts=pin_login_attempts.failed_attempts+1,
+			locked_until=CASE WHEN pin_login_attempts.failed_attempts+1>=5 THEN now()+interval '15 minutes' ELSE pin_login_attempts.locked_until END,
+			updated_at=now()`,in.PhoneE164)
 		writeError(w,401,"invalid_credentials","Phone number or PIN is incorrect"); return
 	}
 	if err!=nil { writeError(w,500,"internal_error","Could not log in"); return }
+	_,_=s.db.Exec(ctx,`DELETE FROM pin_login_attempts WHERE phone_e164=$1`,in.PhoneE164)
 	token,exp,err:=s.tokens.Issue(id)
 	if err!=nil { writeError(w,500,"internal_error","Could not start session"); return }
 	writeJSON(w,200,map[string]any{"access_token":token,"token_type":"Bearer","expires_at":exp})
