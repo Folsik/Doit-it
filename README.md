@@ -88,7 +88,7 @@ The initial supported phone-region list is an explicit EU product-availability a
 6. On the home screen, choose `visa` or `mastercard` using authenticated `POST /v1/cards/choose`. The backend atomically creates an EUR account and a card-issuance request record.
 
 In local development the OTP is returned as `development_code` and written to the development log. **Production OTP sending is deliberately disabled** until an SMS provider is integrated. Never expose the development code in a production client. Card selection creates a prototype issuance request only; actual card issuance requires a licensed issuer/programme and provider integration. This flow does not perform KYC, sanctions screening, age checks or regulated account-opening checks.
-\n## Configuration
+\n## Identity verification (KYC)\n\nSee [docs/identity-verification.md](docs/identity-verification.md) for the single-flow identity verification UX, anti-counterfeit controls, cross-document duplicate prevention and provider integration contract. Migration `005_identity_verification.sql` adds the KYC session, verified-person fingerprint and idempotent provider-event tables. **A KYC provider adapter/webhook is not yet connected; onboarding must fail closed until it is.**\n\n## Configuration
 
 See .env.example. Important settings:
 
