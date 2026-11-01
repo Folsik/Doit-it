@@ -19,7 +19,7 @@ type DecisionWebhook struct {
 			LastName  string `json:"lastName"`
 			DateOfBirth string `json:"dateOfBirth"`
 			Country   string `json:"country"`
-		} `json:" person,omitempty"`
+		} `json:"person,omitempty"`
 	} `json:"verification"`
 }
 
