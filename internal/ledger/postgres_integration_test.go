@@ -18,6 +18,9 @@ func postgresIntegrationPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
+		if os.Getenv("CI") == "true" {
+			t.Fatal("TEST_DATABASE_URL must be configured in CI; refusing to skip PostgreSQL integration tests")
+		}
 		t.Skip("TEST_DATABASE_URL is not set; PostgreSQL integration test skipped")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
