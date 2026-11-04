@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/folsik/doit-it/internal/store"
 )
@@ -117,7 +116,7 @@ func TestPostgresLedgerIntegration(t *testing.T) {
 	})
 
 	t.Run("deferred constraint rejects unbalanced journal", func(t *testing.T) {
-		transferID, fromID, _, := seedTransfer(t, ctx, pool, 700)
+		transferID, fromID, _ := seedTransfer(t, ctx, pool, 700)
 		tx, err := pool.Begin(ctx)
 		if err != nil { t.Fatal(err) }
 		var journalID string
