@@ -85,21 +85,29 @@ DECLARE
     debit_total NUMERIC;
     credit_total NUMERIC;
     currency_count BIGINT;
+    invalid_account_currency BIGINT;
+    journal_currency CHAR(3);
 BEGIN
     IF TG_TABLE_NAME = 'ledger_transactions' THEN
         target_id := NEW.id;
     ELSE
         target_id := COALESCE(NEW.ledger_transaction_id, OLD.ledger_transaction_id);
     END IF;
-    SELECT COUNT(*),
-           COALESCE(SUM(amount_minor) FILTER (WHERE side = 'debit'), 0),
-           COALESCE(SUM(amount_minor) FILTER (WHERE side = 'credit'), 0),
-           COUNT(DISTINCT currency)
-      INTO posting_count, debit_total, credit_total, currency_count
-      FROM ledger_postings
-     WHERE ledger_transaction_id = target_id;
+    SELECT currency INTO journal_currency
+      FROM ledger_transactions WHERE id = target_id;
 
-    IF posting_count < 2 OR debit_total <> credit_total OR currency_count <> 1 THEN
+    SELECT COUNT(*),
+           COALESCE(SUM(lp.amount_minor) FILTER (WHERE lp.side = 'debit'), 0),
+           COALESCE(SUM(lp.amount_minor) FILTER (WHERE lp.side = 'credit'), 0),
+           COUNT(DISTINCT lp.currency),
+           COUNT(*) FILTER (WHERE lp.currency <> journal_currency OR a.currency <> lp.currency)
+      INTO posting_count, debit_total, credit_total, currency_count, invalid_account_currency
+      FROM ledger_postings lp
+      JOIN accounts a ON a.id = lp.account_id
+     WHERE lp.ledger_transaction_id = target_id;
+
+    IF posting_count < 2 OR debit_total <> credit_total OR currency_count <> 1
+       OR invalid_account_currency <> 0 OR journal_currency IS NULL THEN
         RAISE EXCEPTION 'ledger transaction % is not balanced', target_id;
     END IF;
     RETURN NULL;
