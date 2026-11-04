@@ -87,27 +87,45 @@ DECLARE
     currency_count BIGINT;
     invalid_account_currency BIGINT;
     journal_currency CHAR(3);
+    expected_from UUID;
+    expected_to UUID;
+    expected_amount BIGINT;
+    expected_currency CHAR(3);
+    transfer_posting_count BIGINT;
+    valid_debit_count BIGINT;
+    valid_credit_count BIGINT;
 BEGIN
     IF TG_TABLE_NAME = 'ledger_transactions' THEN
         target_id := NEW.id;
     ELSE
         target_id := COALESCE(NEW.ledger_transaction_id, OLD.ledger_transaction_id);
     END IF;
-    SELECT currency INTO journal_currency
-      FROM ledger_transactions WHERE id = target_id;
+    SELECT lt.currency, t.from_account_id, t.to_account_id, t.amount_minor, t.currency
+      INTO journal_currency, expected_from, expected_to, expected_amount, expected_currency
+      FROM ledger_transactions lt
+      JOIN transfers t ON t.id = lt.transfer_id
+     WHERE lt.id = target_id;
 
     SELECT COUNT(*),
+           COUNT(*) FILTER (WHERE lp.side = 'debit' AND lp.account_id = expected_from
+                              AND lp.amount_minor = expected_amount
+                              AND lp.currency = expected_currency),
+           COUNT(*) FILTER (WHERE lp.side = 'credit' AND lp.account_id = expected_to
+                              AND lp.amount_minor = expected_amount
+                              AND lp.currency = expected_currency),
            COALESCE(SUM(lp.amount_minor) FILTER (WHERE lp.side = 'debit'), 0),
            COALESCE(SUM(lp.amount_minor) FILTER (WHERE lp.side = 'credit'), 0),
            COUNT(DISTINCT lp.currency),
            COUNT(*) FILTER (WHERE lp.currency <> journal_currency OR a.currency <> lp.currency)
-      INTO posting_count, debit_total, credit_total, currency_count, invalid_account_currency
+      INTO posting_count, valid_debit_count, valid_credit_count, debit_total, credit_total, currency_count, invalid_account_currency
       FROM ledger_postings lp
       JOIN accounts a ON a.id = lp.account_id
      WHERE lp.ledger_transaction_id = target_id;
 
-    IF posting_count < 2 OR debit_total <> credit_total OR currency_count <> 1
-       OR invalid_account_currency <> 0 OR journal_currency IS NULL THEN
+    IF posting_count <> 2 OR valid_debit_count <> 1 OR valid_credit_count <> 1
+       OR debit_total <> expected_amount OR credit_total <> expected_amount
+       OR currency_count <> 1 OR invalid_account_currency <> 0
+       OR journal_currency IS NULL OR journal_currency <> expected_currency THEN
         RAISE EXCEPTION 'ledger transaction % is not balanced', target_id;
     END IF;
     RETURN NULL;
