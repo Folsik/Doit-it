@@ -1,6 +1,6 @@
 # Accounts, double-entry ledger, and internal P2P implementation plan
 
-Status: approved design; implementation work in progress.
+Status: implementation in progress; migration, journal service, and transfer-handler integration are committed on this branch.
 
 ## Scope
 
@@ -67,3 +67,20 @@ The API response shape and existing endpoint remain compatible. Replayed request
 ## Verification plan
 
 Run targeted package tests, PostgreSQL integration tests against the migration chain, `go test ./...`, `go vet ./...`, and build. Review migration locking/backfill and compare API responses before/after. Report checks that cannot be run in the development environment explicitly.
+
+
+## Implemented in this branch
+
+- Added forward-only migration `006_double_entry_ledger.sql` with deterministic backfill from signed legacy entries.
+- Migration aborts if completed transfers do not have the expected two matching signed entries or account balances do not reconcile to the legacy ledger.
+- Added immutable journal transaction/posting tables and deferred database checks for balanced postings and currency consistency.
+- Added a transactional Go ledger service. It writes debit/credit postings and maintains the legacy signed `ledger_entries` projection in the caller's transaction.
+- Switched the existing internal transfer handler to the ledger service; existing transfer API shape, idempotency, account locking, and balance projection remain in place.
+- Added unit tests for invalid ledger posting input.
+
+## Remaining verification
+
+- Run migration against a clean database and a representative database containing historical transfers.
+- Run database-backed tests for rollback, balanced journal enforcement, idempotent replay, and concurrent spending.
+- Run `go test ./...`, `go vet ./...`, and `go build -trimpath`.
+- Review GitHub Actions results before marking this PR ready for review.
