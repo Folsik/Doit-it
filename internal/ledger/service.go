@@ -50,5 +50,15 @@ func (s *Service) PostTransfer(ctx context.Context, tx pgx.Tx, transferID, fromA
 			return fmt.Errorf("insert ledger posting: %w", err)
 		}
 	}
+
+	// Keep the signed legacy projection in sync for any existing readers while
+	// the new journal becomes the canonical accounting record.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO ledger_entries(transfer_id,account_id,amount_minor,currency)
+		 VALUES($1,$2,$3,$4),($1,$5,$6,$4)`,
+		transferID, fromAccountID, -amount, currency, toAccountID, amount,
+	); err != nil {
+		return fmt.Errorf("maintain legacy ledger projection: %w", err)
+	}
 	return nil
 }
