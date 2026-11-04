@@ -86,7 +86,11 @@ DECLARE
     credit_total NUMERIC;
     currency_count BIGINT;
 BEGIN
-    target_id := COALESCE(NEW.ledger_transaction_id, OLD.ledger_transaction_id);
+    IF TG_TABLE_NAME = 'ledger_transactions' THEN
+        target_id := NEW.id;
+    ELSE
+        target_id := COALESCE(NEW.ledger_transaction_id, OLD.ledger_transaction_id);
+    END IF;
     SELECT COUNT(*),
            COALESCE(SUM(amount_minor) FILTER (WHERE side = 'debit'), 0),
            COALESCE(SUM(amount_minor) FILTER (WHERE side = 'credit'), 0),
@@ -106,6 +110,26 @@ CREATE CONSTRAINT TRIGGER ledger_transaction_must_balance
 AFTER INSERT OR UPDATE OR DELETE ON ledger_postings
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION enforce_balanced_ledger_transaction();
+
+CREATE CONSTRAINT TRIGGER ledger_transaction_must_have_postings
+AFTER INSERT ON ledger_transactions
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION enforce_balanced_ledger_transaction();
+
+CREATE FUNCTION prevent_ledger_posting_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $
+BEGIN
+    RAISE EXCEPTION 'posted ledger records are immutable; use a compensating transaction';
+END;
+$;
+
+CREATE TRIGGER ledger_postings_are_immutable
+BEFORE UPDATE OR DELETE ON ledger_postings
+FOR EACH ROW EXECUTE FUNCTION prevent_ledger_posting_mutation();
+
+CREATE TRIGGER ledger_transactions_are_immutable
+BEFORE UPDATE OR DELETE ON ledger_transactions
+FOR EACH ROW EXECUTE FUNCTION prevent_ledger_posting_mutation();
 
 -- Verify migrated journal balances before allowing startup to continue.
 DO $$
