@@ -23,16 +23,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/folsik/doit-it/internal/auth"
+	"github.com/folsik/doit-it/internal/ledger"
 )
 
 type Server struct {
 	db     *pgxpool.Pool
 	tokens *auth.Manager
 	logger *slog.Logger
+	ledger *ledger.Service
 }
 
 func New(db *pgxpool.Pool, tokens *auth.Manager, logger *slog.Logger) *Server {
-	return &Server{db: db, tokens: tokens, logger: logger}
+	return &Server{db: db, tokens: tokens, logger: logger, ledger: ledger.NewService()}
 }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -551,8 +553,9 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "internal_error", "Could not credit account")
 		return
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO ledger_entries(transfer_id,account_id,amount_minor,currency) VALUES($1,$2,$3,$4),($1,$5,$6,$4)`, transferID, in.FromAccountID, -in.AmountMinor, in.Currency, in.ToAccountID, in.AmountMinor); err != nil {
-		writeError(w, 500, "internal_error", "Could not record ledger entries")
+	if err = s.ledger.PostTransfer(ctx, tx, transferID, in.FromAccountID, in.ToAccountID, in.Currency, in.AmountMinor); err != nil {
+		s.logger.Error("post transfer ledger failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not record ledger entries")
 		return
 	}
 	if err = tx.Commit(ctx); err != nil {

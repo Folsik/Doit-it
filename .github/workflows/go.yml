@@ -2,7 +2,7 @@ name: Go checks
 
 on:
   push:
-    branches: [main, refactor/backend-hardening]
+    branches: [main, dev-integration, refactor/backend-hardening, feat/accounts-ledger-p2p]
   pull_request:
 
 permissions:
@@ -10,7 +10,25 @@ permissions:
 
 jobs:
   test:
+    name: Tests, PostgreSQL integration, vet and build
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: doit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d doit_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: "true"
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/doit_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -19,9 +37,28 @@ jobs:
           cache: true
       - name: Download dependencies
         run: go mod download
-      - name: Test
-        run: go test ./...
+      - name: Test (unit + PostgreSQL integration)
+        run: go test -race -count=1 ./...
       - name: Vet
         run: go vet ./...
       - name: Build
         run: go build -trimpath -o /tmp/doit .
+
+  security:
+    name: Dependency and source security checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+      - name: Go vulnerability database scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Gosec static security analysis
+        uses: securego/gosec@v2.22.2
+        with:
+          args: '-severity medium -confidence medium ./...'

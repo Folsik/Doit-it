@@ -20,13 +20,14 @@ Open http://localhost:3000.
 - Payments with send-money modal and payment actions.
 - Insights with category breakdown and spending summary.
 - Profile with locale and preferences.
-- Security with 2FA, biometrics and active-session UI.
+- Security settings prototype (2FA and biometrics are visual placeholders; no authenticator setup or PIN-change API exists yet).
+- `/auth` phone onboarding and sign-in flow connected to the existing Go onboarding endpoints.
 
 ## Prototype boundaries
 
-All balances, transactions, user details and card details are illustrative demo data. Sending a transfer only adds a local demo transaction in the browser; it does not call the Go API or move money. Settings controls are visual placeholders.
+Dashboard balances, transactions, user details and card details remain illustrative demo data. Sending a transfer only adds a local demo transaction in the browser; it does not call the Go API or move money. The `/auth` route does call the Go API for phone OTP, PIN creation/login, optional email and card preference. Development OTP is displayed only when the API returns `development_code`; real SMS delivery is not configured.
 
-No JWT is stored in localStorage. The frontend is not authenticated yet and must not be used with real customer data.
+No JWT is stored in localStorage. The onboarding route keeps the short-lived access token in component memory only. Refreshing the page loses that in-memory session. The dashboard itself is still not authenticated and must not be used with real customer data.
 
 ## Next integration step
 
