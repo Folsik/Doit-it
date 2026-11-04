@@ -125,11 +125,11 @@ DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION enforce_balanced_ledger_transaction();
 
 CREATE FUNCTION prevent_ledger_posting_mutation() RETURNS trigger
-LANGUAGE plpgsql AS $
+LANGUAGE plpgsql AS $$
 BEGIN
     RAISE EXCEPTION 'posted ledger records are immutable; use a compensating transaction';
 END;
-$;
+$$;
 
 CREATE TRIGGER ledger_postings_are_immutable
 BEFORE UPDATE OR DELETE ON ledger_postings
