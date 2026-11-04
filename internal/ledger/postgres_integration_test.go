@@ -119,6 +119,16 @@ func TestPostgresLedgerIntegration(t *testing.T) {
 		if journals+postings+legacy != 0 { t.Fatalf("rollback left rows: journal=%d postings=%d legacy=%d",journals,postings,legacy) }
 	})
 
+	t.Run("deferred constraint rejects balanced but transfer-mismatched journal", func(t *testing.T) {
+		transferID, fromID, toID := seedTransfer(t, ctx, pool, 700)
+		tx, err := pool.Begin(ctx)
+		if err != nil { t.Fatal(err) }
+		var journalID string
+		if err := tx.QueryRow(ctx, "INSERT INTO ledger_transactions(transfer_id,currency) VALUES($1,'EUR') RETURNING id", transferID).Scan(&journalID); err != nil { t.Fatal(err) }
+		if _, err := tx.Exec(ctx, "INSERT INTO ledger_postings(ledger_transaction_id,account_id,currency,side,amount_minor) VALUES($1,$2,'EUR','debit',600),($1,$3,'EUR','credit',600)", journalID, fromID, toID); err != nil { t.Fatal(err) }
+		if err := tx.Commit(ctx); err == nil { t.Fatal("expected deferred constraint to reject journal that does not match transfer amount") }
+	})
+
 	t.Run("deferred constraint rejects unbalanced journal", func(t *testing.T) {
 		transferID, fromID, _ := seedTransfer(t, ctx, pool, 700)
 		tx, err := pool.Begin(ctx)
