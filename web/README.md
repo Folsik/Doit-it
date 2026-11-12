@@ -20,11 +20,17 @@ Open http://localhost:3000.
 - Payments with send-money modal and payment actions.
 - Insights with category breakdown and spending summary.
 - Profile with locale and preferences.
-- Security with 2FA, biometrics and active-session UI.
+- Security with six-digit PIN sign-in guidance and explicit unavailable states for PIN change, PIN recovery, and device biometrics. No authenticator-app TOTP.
+
+## Phone onboarding and PIN sign-in
+
+Open `http://localhost:3000/auth` to create an account or sign in with a six-digit app PIN. Set `NEXT_PUBLIC_API_URL` to your Go API origin (defaults to `http://localhost:8080`). The flow uses `/v1/onboarding/countries`, `/v1/onboarding/send-otp`, `/v1/onboarding/verify-otp`, `/v1/onboarding/set-pin`, `PUT /v1/me/email`, `/v1/cards/choose`, and `/v1/auth/phone-login`.
+
+**Development only:** The backend returns a `development_code` for its simulated SMS OTP if not running in production; no real SMS delivery is configured. The browser never stores the bearer token in localStorage, and navigation to `/` leaves the authenticated session behind. The dashboard is a separate demo view, not live user data. PIN recovery/change and true device-bound biometric sign-in require backend support and native platform integration or WebAuthn device credentials; they are not active on this web prototype.
 
 ## Prototype boundaries
 
-All balances, transactions, user details and card details are illustrative demo data. Sending a transfer only adds a local demo transaction in the browser; it does not call the Go API or move money. Settings controls are visual placeholders.
+All balances, transactions, user details and card details are illustrative demo data. Sending a transfer only adds a local demo transaction in the browser; it does not call the Go API or move money. Security controls not supported by the Go backend are explicitly shown as unavailable rather than pretending to work.
 
 No JWT is stored in localStorage. The frontend is not authenticated yet and must not be used with real customer data.
 
