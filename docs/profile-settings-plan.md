@@ -18,8 +18,12 @@ Target branch: `feat/profile-settings-api` (based on `dev-integration`). Merge t
 6. Document native iOS/Android clients using the same API. Biometrics belong to native device-bound credential/session flow, not browser imitation.
 7. Review Dockerfiles, Compose, migration startup and frontend API origin; change only if needed. Run Go tests, frontend lint/build, DB integration tests and security checks before PR merge.
 
-## Questions before regulated-profile writes
-- Should changes to legal name, nationality, birth date and country of residence be locked behind Veriff re-verification or handled as support requests?
+## Confirmed KYC decision
+- Legal name, date of birth, nationality, and country of residence changes require a new Veriff verification session and an approved result before any verified identity record is changed.
+- Re-verification must be bound to the authenticated user and requested change; verify provider webhook signatures and decision state, prevent replay and duplicate applications, audit old/new values, and handle rejection without changing existing identity.
+- Until that end-to-end workflow exists, generic `PATCH /v1/me` rejects attempts to change legal name or country with `403 kyc_required`; the API does not claim re-verification is already implemented.
+
+## Open product questions
 - Which currencies and languages are supported at launch? Defaults EUR/en.
 - Which notification channels are implemented now? Persisting preferences does not by itself deliver push/email/SMS.
 
