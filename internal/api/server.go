@@ -254,13 +254,17 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	in.FullName = strings.TrimSpace(in.FullName)
-	if len(in.FullName) > 120 || (in.PreferredCurrency != "" && (len(in.PreferredCurrency) != 3 || !asciiLetters(in.PreferredCurrency))) ||
-		len(in.LanguageCode) > 10 || (in.CountryCode != "" && (len(in.CountryCode) != 2 || !asciiLetters(in.CountryCode))) {
+	// Legal identity changes require a separate, approved Veriff re-verification flow.
+	// Never allow a generic profile PATCH to modify KYC-relevant identity fields.
+	if in.FullName != "" || in.CountryCode != "" {
+		writeError(w, http.StatusForbidden, "kyc_required", "Legal name and country changes require Veriff re-verification")
+		return
+	}
+	if (in.PreferredCurrency != "" && (len(in.PreferredCurrency) != 3 || !asciiLetters(in.PreferredCurrency))) || len(in.LanguageCode) > 10 {
 		writeError(w, http.StatusBadRequest, "validation_error", "Invalid profile fields")
 		return
 	}
-	_, err := s.db.Exec(r.Context(), `UPDATE users SET full_name=COALESCE(NULLIF($2,''),full_name),country_code=COALESCE(NULLIF($3,''),country_code),preferred_currency=COALESCE(NULLIF($4,''),preferred_currency),language_code=COALESCE(NULLIF($5,''),language_code),updated_at=now() WHERE id=$1`, uid(r), in.FullName, strings.ToUpper(in.CountryCode), strings.ToUpper(in.PreferredCurrency), in.LanguageCode)
+	_, err := s.db.Exec(r.Context(), `UPDATE users SET preferred_currency=COALESCE(NULLIF($2,''),preferred_currency),language_code=COALESCE(NULLIF($3,''),language_code),updated_at=now() WHERE id=$1`, uid(r), strings.ToUpper(in.PreferredCurrency), in.LanguageCode)
 	if err != nil {
 		writeError(w, 500, "internal_error", "Could not update profile")
 		return
