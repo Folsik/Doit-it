@@ -61,6 +61,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/transactions", s.protect(http.HandlerFunc(s.transactions)))
 	mux.Handle("GET /v1/transactions/{id}", s.protect(http.HandlerFunc(s.transactionDetail)))
 	mux.Handle("POST /v1/transfers", s.protect(http.HandlerFunc(s.transfer)))
+	mux.Handle("POST /v1/payment-instructions", s.protect(http.HandlerFunc(s.createPaymentInstruction)))
+	mux.Handle("GET /v1/payment-instructions", s.protect(http.HandlerFunc(s.listPaymentInstructions)))
 	mux.Handle("GET /v1/security/sessions", s.protect(http.HandlerFunc(s.sessions)))
 	mux.Handle("DELETE /v1/security/sessions/{id}", s.protect(http.HandlerFunc(s.revokeSession)))
 	return requestID(recoverer(s.logger)(securityHeaders(mux)))
