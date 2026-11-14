@@ -4,7 +4,8 @@ export const runtime = "nodejs";
 const cookieName = "doit_session";
 function validOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
-  return !!origin && origin === request.nextUrl.origin;
+  if (!origin) return false;
+  try { const parsed=new URL(origin); return (parsed.protocol==="http:" || parsed.protocol==="https:") && parsed.host === request.headers.get("host"); } catch {return false;}
 }
 export async function POST(request: NextRequest) {
   if (!validOrigin(request)) return NextResponse.json({error:"Invalid origin"}, {status:403});
