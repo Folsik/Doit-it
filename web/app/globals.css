@@ -83,3 +83,17 @@
 .profile-editor-form .profile-toggle input{width:17px;height:17px;accent-color:#2878f5}
 .profile-notice{font-size:13px;color:#087c62;padding:14px 16px;border:1px solid #a8e4d1;border-radius:11px;background:#eefdF6}
 @media(max-width:640px){.profile-editor{padding:22px 18px}.profile-editor-heading h2{font-size:17px}}
+
+
+/* Persisted appearance preference: readable dark surfaces in profile and dashboard. */
+html[data-doit-theme="dark"]{--ink:#e8eef9;--muted:#a0b2cb;--canvas:#111b2b;--line:#33445e;--shadow:0 7px 24px rgba(0,0,0,.14);color-scheme:dark}
+html[data-doit-theme="dark"] body,html[data-doit-theme="dark"] .main-area{background:#111b2b;color:#e8eef9}
+html[data-doit-theme="dark"] .sidebar,html[data-doit-theme="dark"] .topbar,html[data-doit-theme="dark"] .panel,html[data-doit-theme="dark"] .profile-card,html[data-doit-theme="dark"] .settings-panel,html[data-doit-theme="dark"] .transfer-modal{background:#1b2a40;color:#e8eef9;border-color:#33445e}
+html[data-doit-theme="dark"] .profile-section-title,html[data-doit-theme="dark"] .profile-editor-heading h2,html[data-doit-theme="dark"] .profile-name h2,html[data-doit-theme="dark"] .setting-row strong,html[data-doit-theme="dark"] .brand,html[data-doit-theme="dark"] .breadcrumb strong{color:#e8eef9}
+html[data-doit-theme="dark"] .setting-row,html[data-doit-theme="dark"] .setting-button{border-color:#33445e;color:#e8eef9}
+html[data-doit-theme="dark"] .setting-button:hover,html[data-doit-theme="dark"] .nav-link:hover,html[data-doit-theme="dark"] .nav-link.active{background:#273d5b}
+html[data-doit-theme="dark"] .profile-editor-form input:not([type=checkbox]),html[data-doit-theme="dark"] .profile-editor-form select{background:#122037;border-color:#435672;color:#e8eef9}
+html[data-doit-theme="dark"] .profile-editor-form input:disabled,html[data-doit-theme="dark"] .profile-editor-form select:disabled{background:#26344c;color:#a0b2cb}
+html[data-doit-theme="dark"] .profile-editor-form label{color:#c8d5e8}
+html[data-doit-theme="dark"] .secondary-button,html[data-doit-theme="dark"] .icon-button{background:#253950;color:#e8eef9;border-color:#405875}
+html[data-doit-theme="dark"] .help-card{background:#21344e;border-color:#33445e}
