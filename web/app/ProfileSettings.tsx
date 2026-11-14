@@ -29,6 +29,13 @@ export default function ProfileSettings(){
  const locale:Locale=(user?.language_code && user.language_code in copy ? user.language_code : "en") as Locale;
  const t=copy[locale];
  useEffect(()=>{
+   const media=window.matchMedia("(prefers-color-scheme: dark)");
+   const apply=()=>{document.documentElement.dataset.doitTheme=settings.appearance==="system"?(media.matches?"dark":"light"):settings.appearance};
+   apply();
+   media.addEventListener("change",apply);
+   return ()=>media.removeEventListener("change",apply);
+ },[settings.appearance]);
+ useEffect(()=>{
    let alive=true;
    Promise.all([api<User>("/v1/me"),api<Settings>("/v1/me/settings")]).then(([u,s])=>{if(alive){setUser(u);setSettings(s);document.documentElement.lang=u.language_code in copy?u.language_code:"en";}}).catch((e:Error&{status?:number})=>{if(alive){setUnauthorized(e.status===401);setError(e.message);}}).finally(()=>{if(alive)setLoading(false)});
    return ()=>{alive=false};
