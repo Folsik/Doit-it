@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      NEXT_PUBLIC_API_URL: http://localhost:8080
+      API_INTERNAL_URL: http://api:8080
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
