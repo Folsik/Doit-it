@@ -61,3 +61,25 @@
 .auth-form select{appearance:none;-webkit-appearance:none;padding-right:44px;cursor:pointer;background-color:#fcfdff;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' fill='none' stroke='%235b7191' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;background-size:18px 18px}
 .auth-form select:disabled{opacity:.65;cursor:not-allowed;background-color:#f1f4f9}
 .auth-form select:hover:not(:disabled){border-color:#a6bfe7}
+
+
+/* Live account profile editor */
+.profile-section-title{margin:0 0 14px;font-size:16px;font-weight:700;color:#17243b}
+.profile-settings-status{padding:32px;display:flex;flex-direction:column;align-items:flex-start;gap:14px;color:#42526d}
+.profile-settings-status h2{font-size:20px;margin:0}
+.profile-settings-status p{font-size:13px;margin:0}
+.profile-editor{width:min(100%,520px);max-height:min(90vh,850px);overflow-y:auto}
+.profile-editor-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:24px}
+.profile-editor-heading h2{font-size:20px;margin:0;color:#17243b}
+.profile-editor-form{display:flex;flex-direction:column;gap:15px}
+.profile-editor-form label{display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:700;color:#455775}
+.profile-editor-form input:not([type=checkbox]),.profile-editor-form select{width:100%;height:44px;min-height:44px;border-radius:10px;border:1px solid #dce5f1;padding:0 12px;background:#fff;color:#182943;font-size:14px;font-weight:500}
+.profile-editor-form select{appearance:auto;cursor:pointer}
+.profile-editor-form input:focus-visible,.profile-editor-form select:focus-visible{outline:2px solid #2878f5;outline-offset:2px}
+.profile-editor-form input:disabled,.profile-editor-form select:disabled{color:#74839c;background:#f2f5fa;cursor:not-allowed}
+.profile-editor-form .primary-button,.profile-editor-form .secondary-button{min-height:43px;display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 15px;text-decoration:none;cursor:pointer}
+.profile-editor-form .primary-button:disabled{opacity:.55;cursor:wait}
+.profile-editor-form .profile-toggle{flex-direction:row;align-items:center;gap:12px;cursor:pointer;font-size:13px}
+.profile-editor-form .profile-toggle input{width:17px;height:17px;accent-color:#2878f5}
+.profile-notice{font-size:13px;color:#087c62;padding:14px 16px;border:1px solid #a8e4d1;border-radius:11px;background:#eefdF6}
+@media(max-width:640px){.profile-editor{padding:22px 18px}.profile-editor-heading h2{font-size:17px}}
