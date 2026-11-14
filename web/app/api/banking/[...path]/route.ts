@@ -13,7 +13,9 @@ async function handler(request:NextRequest,{params}:{params:Promise<{path:string
   if (!allowed[method]?.includes(path)) return NextResponse.json({error:{message:"Endpoint not allowed"}},{status:404});
   if (method!=="GET") {
     const origin=request.headers.get("origin");
-    if (!origin || origin!==request.nextUrl.origin) return NextResponse.json({error:{message:"Invalid origin"}},{status:403});
+    let valid=false;
+    try { const parsed=new URL(origin ?? "");valid=(parsed.protocol==="http:" || parsed.protocol==="https:") && parsed.host===request.headers.get("host"); }catch{}
+    if (!valid) return NextResponse.json({error:{message:"Invalid origin"}},{status:403});
   }
   const token=request.cookies.get("doit_session")?.value;
   if (!token) return NextResponse.json({error:{message:"Please sign in"}},{status:401});
