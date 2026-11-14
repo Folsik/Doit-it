@@ -2,6 +2,8 @@ package api
 
 import (
  "net/http"
+ "errors"
+ "github.com/jackc/pgx/v5"
  "strings"
 )
 
@@ -21,6 +23,7 @@ func (s *Server) getProfileSettings(w http.ResponseWriter,r *http.Request) {
  var v settingsDTO
  err:=s.db.QueryRow(r.Context(),`SELECT address_line1,address_line2,city,postal_code,COALESCE(residence_country,''),notifications_email,notifications_push,notifications_security,appearance FROM user_profile_settings WHERE user_id=$1`,uid(r)).Scan(&v.AddressLine1,&v.AddressLine2,&v.City,&v.PostalCode,&v.ResidenceCountry,&v.NotificationsEmail,&v.NotificationsPush,&v.NotificationsSecurity,&v.Appearance)
  if err!=nil {
+  if !errors.Is(err,pgx.ErrNoRows) {writeError(w,500,"internal_error","Could not load settings");return}
   // New users inherit defaults without requiring a separate initialization path.
   if _,e:=s.db.Exec(r.Context(),`INSERT INTO user_profile_settings(user_id) VALUES($1) ON CONFLICT DO NOTHING`,uid(r));e!=nil {writeError(w,500,"internal_error","Could not initialize settings");return}
   err=s.db.QueryRow(r.Context(),`SELECT address_line1,address_line2,city,postal_code,COALESCE(residence_country,''),notifications_email,notifications_push,notifications_security,appearance FROM user_profile_settings WHERE user_id=$1`,uid(r)).Scan(&v.AddressLine1,&v.AddressLine2,&v.City,&v.PostalCode,&v.ResidenceCountry,&v.NotificationsEmail,&v.NotificationsPush,&v.NotificationsSecurity,&v.Appearance)
