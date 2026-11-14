@@ -2,6 +2,7 @@ package api
 
 import (
  "crypto/sha256"
+ "bytes"
  "encoding/json"
  "net/http"
  "strings"
@@ -43,14 +44,13 @@ func (s *Server) createPaymentInstruction(w http.ResponseWriter,r *http.Request)
   var existingHash []byte
   lookup:=s.db.QueryRow(r.Context(),`SELECT id::text,status,request_fingerprint FROM payment_instructions WHERE user_id=$1 AND idempotency_key=$2`,uid(r),v.IdempotencyKey).Scan(&existingID,&existingStatus,&existingHash)
   if lookup==nil {
-   if len(existingHash)!=len(fingerprint)||!strings.EqualFold(strings.ToLower(hexFingerprint(existingHash)),strings.ToLower(hexFingerprint(fingerprint[:]))) {writeError(w,409,"idempotency_conflict","Idempotency key used with another request");return}
+   if len(existingHash)!=len(fingerprint)||!bytes.Equal(existingHash,fingerprint[:]) {writeError(w,409,"idempotency_conflict","Idempotency key used with another request");return}
    writeJSON(w,200,map[string]any{"id":existingID,"status":existingStatus,"replayed":true,"provider_connected":false});return
   }
   writeError(w,400,"instruction_not_created","Source account unavailable or payment instruction invalid");return
  }
  writeJSON(w,201,map[string]any{"id":id,"status":status,"provider_connected":false,"notice":"Provider stub only: no funds moved or external payment submitted"})
 }
-func hexFingerprint(v []byte) string {return string(v)}
 func (s *Server) listPaymentInstructions(w http.ResponseWriter,r *http.Request) {
  rows,err:=s.db.Query(r.Context(),`SELECT id::text,rail,amount_minor,currency,status,created_at FROM payment_instructions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`,uid(r))
  if err!=nil {writeError(w,500,"internal_error","Could not list instructions");return}
