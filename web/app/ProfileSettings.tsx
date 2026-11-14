@@ -19,7 +19,7 @@ type Locale=keyof typeof copy;
 async function api<T>(path:string,method:"GET"|"PUT"|"PATCH"|"POST"="GET",body?:unknown):Promise<T>{
  const r=await fetch("/api/banking"+path,{method,credentials:"same-origin",headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),cache:"no-store"});
  const result=await r.json().catch(()=>({}));
- if(!r.ok) throw Object.assign(new Error(result?.error?.message??"Unable to save settings"),{status:r.status});
+ if(!r.ok) throw Object.assign(new Error(result?.error?.message??(r.status===401?"Your session has expired. Please sign in again.":r.status===404?"Profile API route was not found. Verify frontend and API versions.":`Profile request failed (HTTP ${r.status}).`)),{status:r.status});
  return result as T;
 }
 export default function ProfileSettings(){
