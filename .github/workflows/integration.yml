@@ -31,6 +31,14 @@ jobs:
           grep -q "Create a new account" /tmp/doit-auth.html
           curl --fail --silent --show-error http://127.0.0.1:8080/v1/onboarding/countries -o /tmp/doit-countries.json
           grep -q "items" /tmp/doit-countries.json
+          curl --fail --silent --show-error http://127.0.0.1:3000/api/v1/onboarding/countries -o /tmp/doit-proxied-countries.json
+          python3 - <<'PY'
+          import json
+          direct=json.load(open("/tmp/doit-countries.json"))
+          proxied=json.load(open("/tmp/doit-proxied-countries.json"))
+          assert proxied["items"] == direct["items"]
+          assert any(item["code"] == "DE" for item in proxied["items"])
+          PY
       - name: Assert protected profile requires authentication
         run: |
           status=$(curl -s -o /tmp/doit-unauthorized.json -w "%{http_code}" http://127.0.0.1:8080/v1/me)
