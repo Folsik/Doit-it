@@ -269,8 +269,8 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "kyc_required", "Legal name and country changes require Veriff re-verification")
 		return
 	}
-	if (in.PreferredCurrency != "" && (len(in.PreferredCurrency) != 3 || !asciiLetters(in.PreferredCurrency))) || len(in.LanguageCode) > 10 {
-		writeError(w, http.StatusBadRequest, "validation_error", "Invalid profile fields")
+	if (in.PreferredCurrency != "" && strings.ToUpper(in.PreferredCurrency) != "EUR") || (in.LanguageCode != "" && in.LanguageCode != "en" && in.LanguageCode != "de" && in.LanguageCode != "fr" && in.LanguageCode != "es") {
+		writeError(w, http.StatusBadRequest, "validation_error", "Only EUR and supported languages (en, de, fr, es) are available")
 		return
 	}
 	_, err := s.db.Exec(r.Context(), `UPDATE users SET preferred_currency=COALESCE(NULLIF($2,''),preferred_currency),language_code=COALESCE(NULLIF($3,''),language_code),updated_at=now() WHERE id=$1`, uid(r), strings.ToUpper(in.PreferredCurrency), in.LanguageCode)
