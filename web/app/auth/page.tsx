@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckCircle2, ShieldCheck } from "lucide-react";
 
 type Country = { code: string; name: string; calling_code: string };
@@ -22,6 +23,7 @@ async function request(path: string, body?: unknown, token?: string) {
 }
 
 export default function AuthPage() {
+  const router = useRouter();
   const [step, setStep] = useState<Step>("welcome");
   const [countries, setCountries] = useState<Country[]>([]);
   const [countriesLoading, setCountriesLoading] = useState(true);
@@ -100,15 +102,24 @@ export default function AuthPage() {
     e.preventDefault();
     await run(async () => {
       await request("/v1/cards/choose", { scheme }, accessToken);
-      setStep("done");
+      await activateDashboard(accessToken);
     });
+  }
+
+  async function activateDashboard(token: string) {
+    const response = await fetch("/api/session", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ access_token: token }), cache: "no-store" });
+    if (!response.ok) {
+      const data=await response.json().catch(()=>({}));
+      throw new Error(data?.error ?? "Could not activate your account session");
+    }
+    router.push("/?view=Profile");
   }
 
   async function login(e: FormEvent) {
     e.preventDefault();
     await run(async () => {
       const data = await request("/v1/auth/phone-login", { phone_e164: phoneE164 || fullPhone, pin });
-      setAccessToken(data.access_token); setPin(""); setStep("done");
+      setAccessToken(data.access_token); setPin(""); await activateDashboard(data.access_token);
     });
   }
 
