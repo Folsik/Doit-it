@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, ShieldCheck } from "lucide-react";
 type Country = { code: string; name: string; calling_code: string };
 type Step = "welcome" | "phone" | "otp" | "pin" | "email" | "card" | "login" | "done";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const API = "/api";
 
 async function request(path: string, body?: unknown, token?: string) {
   const response = await fetch(API + path, {
@@ -24,6 +24,7 @@ async function request(path: string, body?: unknown, token?: string) {
 export default function AuthPage() {
   const [step, setStep] = useState<Step>("welcome");
   const [countries, setCountries] = useState<Country[]>([]);
+  const [countriesLoading, setCountriesLoading] = useState(true);
   const [country, setCountry] = useState("DE");
   const [phone, setPhone] = useState("");
   const [fullPhone, setFullPhone] = useState("");
@@ -42,8 +43,10 @@ export default function AuthPage() {
 
   useEffect(() => {
     fetch(API + "/v1/onboarding/countries", { cache: "no-store" })
-      .then(r => r.json()).then(data => setCountries(data.items ?? []))
-      .catch(() => setError("Could not load supported countries. Check that the Go API is running."));
+      .then(async r => { if (!r.ok) throw new Error(`Countries API returned ${r.status}`); return r.json(); })
+      .then(data => { if (!Array.isArray(data.items) || data.items.length === 0) throw new Error("Empty country list"); setCountries(data.items); setCountry(previous => data.items.some((item: Country) => item.code === previous) ? previous : data.items[0].code); setError(""); })
+      .catch(() => setError("Could not load supported countries. Please check the API connection and try again."))
+      .finally(() => setCountriesLoading(false));
   }, []);
 
   const selectedCountry = countries.find(c => c.code === country);
@@ -130,7 +133,7 @@ export default function AuthPage() {
         <p className="auth-footnote">Development onboarding uses a test OTP. Real SMS delivery is not configured.</p>
       </div>}
       {step === "phone" && <form onSubmit={sendCode} className="auth-form">
-        <label>Country or region<select value={country} onChange={e=>setCountry(e.target.value)} required>{countries.map(c=><option key={c.code} value={c.code}>{c.name} ({c.calling_code})</option>)}</select></label>
+        <label>Country or region<select value={countries.length ? country : ""} onChange={e=>setCountry(e.target.value)} required disabled={countriesLoading || countries.length===0}><option value="" disabled>{countriesLoading ? "Loading countries…" : "Select a country"}</option>{countries.map(c=><option key={c.code} value={c.code}>{c.name} ({c.calling_code})</option>)}</select></label>
         <label>Phone number<input value={phone} onChange={e=>setPhone(e.target.value)} inputMode="tel" placeholder="1512345678" required minLength={6}/></label>
         <p className="auth-hint">Only regions supported by the backend are listed. Final eligibility still requires identity and compliance checks.</p>
         <button className="auth-primary" disabled={busy || !selectedCountry}>{busy ? "Sending…" : "Send verification code"} <ArrowRight size={17}/></button>
@@ -164,7 +167,7 @@ export default function AuthPage() {
         <button className="auth-primary" disabled={busy}>{busy ? "Opening account…" : "Finish setup"} <ArrowRight size={17}/></button>
       </form>}
       {step === "login" && <form onSubmit={login} className="auth-form">
-        <label>Country<select value={country} onChange={e=>setCountry(e.target.value)} required>{countries.map(c=><option key={c.code} value={c.code}>{c.name} ({c.calling_code})</option>)}</select></label>
+        <label>Country<select value={countries.length ? country : ""} onChange={e=>setCountry(e.target.value)} required disabled={countriesLoading || countries.length===0}><option value="" disabled>{countriesLoading ? "Loading countries…" : "Select a country"}</option>{countries.map(c=><option key={c.code} value={c.code}>{c.name} ({c.calling_code})</option>)}</select></label>
         <label>Phone number<input value={phone} onChange={e=>setPhone(e.target.value)} inputMode="tel" placeholder="1512345678" required/></label>
         <label>Six-digit app PIN<input type="password" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,"").slice(0,6))} inputMode="numeric" autoComplete="current-password" placeholder="••••••" required minLength={6} maxLength={6}/></label>
         <button className="auth-primary" disabled={busy || pin.length!==6}>{busy ? "Signing in…" : "Sign in"} <ArrowRight size={17}/></button>
