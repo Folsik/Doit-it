@@ -23,10 +23,18 @@ jobs:
       - name: API health check
         run: |
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused http://127.0.0.1:8080/healthz
-      - name: Frontend smoke check
+      - name: Frontend and onboarding smoke checks
         run: |
+          set -euo pipefail
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused http://127.0.0.1:3000/ -o /tmp/doit-home.html
-          test -s /tmp/doit-home.html
+          curl --fail --silent --show-error http://127.0.0.1:3000/auth -o /tmp/doit-auth.html
+          grep -q "Create a new account" /tmp/doit-auth.html
+          curl --fail --silent --show-error http://127.0.0.1:8080/v1/onboarding/countries -o /tmp/doit-countries.json
+          grep -q "items" /tmp/doit-countries.json
+      - name: Assert protected profile requires authentication
+        run: |
+          status=$(curl -s -o /tmp/doit-unauthorized.json -w "%{http_code}" http://127.0.0.1:8080/v1/me)
+          test "$status" = "401"
       - name: Logs on failure
         if: failure()
         run: docker compose logs --no-color --tail=150
