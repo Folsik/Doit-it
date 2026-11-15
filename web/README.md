@@ -33,7 +33,7 @@ Design components live as local source code, so changes should be reviewed and t
 
 The profile screen reads and saves actual authenticated user settings through Go API. Legal identity and residence country changes require Veriff re-verification, which is currently an unconfigured stub. EUR is the only supported account currency.
 
-**The home dashboard, card details, transactions, transfer modal and spending insights still contain explicitly illustrative prototype data**. They are not connected to the ledger, cannot move real money and must not be treated as account balances or a production payment interface. Full i18n outside profile, live ledger-backed dashboard, token refresh, production SMS, and external payments remain separate work.
+**Home, Accounts, Transactions, and monthly transfer insights are read from the Go REST API through an authenticated Next.js BFF session.** Balances are stored as integer minor units, projected in `accounts.balance_minor` and updated atomically with posted ledger entries. Monthly statistics are completed internal-transfer volumes, not spending categories. A newly created account displays EUR 0.00 and an empty transfer list; there are no injected demo funds or fake transactions.\n\nReal card issuance, historical balance charts, spending categorization, external settlement providers, token refresh, production SMS, and full i18n outside profile remain unimplemented. The Payments page does not initiate transfers until its recipient and confirmation flow is wired to the backend safely.
 
 ## Checks
 
