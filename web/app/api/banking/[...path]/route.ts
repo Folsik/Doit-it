@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 const allowed: Record<string, readonly string[]> = {
-  "GET": ["/v1/me","/v1/me/settings"],
+  "GET": ["/v1/me","/v1/me/settings","/v1/dashboard","/v1/accounts","/v1/transactions"],
   "PATCH":["/v1/me"],
   "PUT":["/v1/me/address","/v1/me/notifications","/v1/me/appearance"],
   "POST":["/v1/me/identity/reverification"]
@@ -19,7 +19,15 @@ async function handler(request:NextRequest,{params}:{params:Promise<{path:string
   }
   const token=request.cookies.get("doit_session")?.value;
   if (!token) return NextResponse.json({error:{message:"Please sign in"}},{status:401});
-  const url=(process.env.API_INTERNAL_URL??"http://127.0.0.1:8080")+path;
+  const query = new URLSearchParams();
+  if (method==="GET" && path==="/v1/transactions") {
+    const incoming=request.nextUrl.searchParams;
+    for (const key of ["limit","offset","status"]) {
+      const value=incoming.get(key);
+      if(value!==null)query.set(key,value);
+    }
+  }
+  const url=(process.env.API_INTERNAL_URL??"http://127.0.0.1:8080")+path+(query.size?"?"+query.toString():"");
   const headers:Record<string,string>={Authorization:"Bearer "+token};
   if(method!=="GET") headers["Content-Type"]="application/json";
   let body: string|undefined;
