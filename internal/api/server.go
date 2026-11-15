@@ -363,7 +363,7 @@ func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 		}
 		offset = n
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT t.id,t.reference,t.amount_minor,t.currency,t.note,t.status,t.created_at, a1.user_id, a2.user_id, a1.name, a2.name FROM transfers t JOIN accounts a1 ON a1.id=t.from_account_id JOIN accounts a2 ON a2.id=t.to_account_id WHERE (a1.user_id=$1 OR a2.user_id=$1) AND ($2='' OR t.status=$2) ORDER BY t.created_at DESC LIMIT $3 OFFSET $4`, uid(r), r.URL.Query().Get("status"), limit, offset)
+	rows, err := s.db.Query(r.Context(), `SELECT t.id,t.reference,t.amount_minor,t.currency,t.note,t.status,t.created_at, a1.user_id, a2.user_id, COALESCE(NULLIF(u1.full_name,''),a1.name), COALESCE(NULLIF(u2.full_name,''),a2.name) FROM transfers t JOIN accounts a1 ON a1.id=t.from_account_id JOIN accounts a2 ON a2.id=t.to_account_id JOIN users u1 ON u1.id=a1.user_id JOIN users u2 ON u2.id=a2.user_id WHERE (a1.user_id=$1 OR a2.user_id=$1) AND ($2='' OR t.status=$2) ORDER BY t.created_at DESC LIMIT $3 OFFSET $4`, uid(r), r.URL.Query().Get("status"), limit, offset)
 	if err != nil {
 		writeError(w, 500, "internal_error", "Could not load transactions")
 		return
@@ -380,10 +380,10 @@ func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		signed := amount
-		title := toName
+		title := fromName
 		if fromUser == uid(r) {
 			signed = -amount
-			title = fromName
+			title = toName
 		}
 		items = append(items, map[string]any{"id": id, "reference": ref, "amount_minor": signed, "currency": strings.TrimSpace(currency), "title": title, "note": note, "status": status, "created_at": created, "type": map[bool]string{true: "outgoing", false: "incoming"}[fromUser == uid(r)]})
 	}
