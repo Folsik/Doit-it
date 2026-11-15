@@ -337,7 +337,26 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "Could not load dashboard")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"total_balance_minor": total, "currency": "EUR", "accounts": accounts, "spending_this_month_minor": 0, "recent_transactions": []any{}, "note": "Dashboard spending analytics will populate as transaction categories are added."})
+	// Transfer volumes are derived from completed transfers, not a spending-category estimate.
+	// The balance remains the atomic accounts projection of posted ledger journals.
+	rows.Close()
+	var outgoing, incoming int64
+	var monthlyCount int64
+	err = s.db.QueryRow(r.Context(), `SELECT
+		COALESCE(SUM(CASE WHEN from_account.user_id=$1 THEN t.amount_minor ELSE 0 END),0)::BIGINT,
+		COALESCE(SUM(CASE WHEN to_account.user_id=$1 THEN t.amount_minor ELSE 0 END),0)::BIGINT,
+		COUNT(*)
+		FROM transfers t
+		JOIN accounts from_account ON from_account.id=t.from_account_id
+		JOIN accounts to_account ON to_account.id=t.to_account_id
+		WHERE (from_account.user_id=$1 OR to_account.user_id=$1)
+		AND t.status='completed' AND t.created_at>=date_trunc('month',now())`, uid(r)).Scan(&outgoing, &incoming, &monthlyCount)
+	if err != nil {
+		s.logger.Error("load dashboard monthly totals failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Could not calculate monthly transfers")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_balance_minor": total, "currency": "EUR", "accounts": accounts, "outgoing_transfers_this_month_minor": outgoing, "incoming_transfers_this_month_minor": incoming, "completed_transfers_this_month": monthlyCount, "note": "Transfer volumes only; spending categories and balance history are not yet available."})
 }
 func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 	statusFilter := r.URL.Query().Get("status")
