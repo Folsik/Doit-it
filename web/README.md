@@ -1,41 +1,46 @@
 # Doit Web
 
-Responsive Next.js + TypeScript prototype for the Doit personal-finance app.
+Next.js 15 + React 19 + **Tailwind CSS v4 and shadcn/ui**.
 
-## Run locally
+The dashboard, onboarding, profile, payments, insights, cards, security, and transaction screens share the same Tailwind design tokens and reusable components in `components/ui/`. The shadcn-style source components live in the repo (not a prepackaged UI runtime). Radix primitives handle accessible dialogs, switches and labels.
 
-Requires Node.js 20.9 or newer.
+## Local development
 
-    cd web
-    npm install
-    npm run dev
+```bash
+cd web
+npm install
+npm run dev
+```
 
-Open http://localhost:3000.
+Use `docker compose up -d --build` from the repository root to start Next.js, Go API, and PostgreSQL together. The browser accesses the Go API through the same-origin `/api/v1/*` rewrite. Profile operations go through the authenticated `/api/banking/v1/*` Next.js route handler.
 
-## Screens
+## Design system
 
-- Home dashboard with balance overview, account cards, chart, quick actions, budget and recent activity.
-- Cards & accounts with masked account details and prototype card controls.
-- Transactions with search and category filters.
-- Payments with send-money modal and payment actions.
-- Insights with category breakdown and spending summary.
-- Profile with locale and preferences.
-- Security with six-digit PIN sign-in guidance and explicit unavailable states for PIN change, PIN recovery, and device biometrics. No authenticator-app TOTP.
+- `app/globals.css`: Tailwind v4 imports, design tokens, light/dark themes and minimal base styles.
+- `components/ui/`: Button, Card, Input, Label, Select, Badge, Dialog, Separator, Switch.
+- `lib/utils.ts`: class merge helper.
+- `components.json`: shadcn CLI configuration.
 
-## Phone onboarding and PIN sign-in
+To add more shadcn components:
 
-Open `http://localhost:3000/auth` to create an account or sign in with a six-digit app PIN. Set `NEXT_PUBLIC_API_URL` to your Go API origin (defaults to `http://localhost:8080`). The flow uses `/v1/onboarding/countries`, `/v1/onboarding/send-otp`, `/v1/onboarding/verify-otp`, `/v1/onboarding/set-pin`, `PUT /v1/me/email`, `/v1/cards/choose`, and `/v1/auth/phone-login`.
+```bash
+npx shadcn@latest add <component>
+```
 
-**Development only:** The backend returns a `development_code` for its simulated SMS OTP if not running in production; no real SMS delivery is configured. The browser never stores the bearer token in localStorage, and navigation to `/` leaves the authenticated session behind. The dashboard is a separate demo view, not live user data. PIN recovery/change and true device-bound biometric sign-in require backend support and native platform integration or WebAuthn device credentials; they are not active on this web prototype.
+Design components live as local source code, so changes should be reviewed and tested like application code.
 
-## Prototype boundaries
+## Known prototype boundaries
 
-All balances, transactions, user details and card details are illustrative demo data. Sending a transfer only adds a local demo transaction in the browser; it does not call the Go API or move money. Security controls not supported by the Go backend are explicitly shown as unavailable rather than pretending to work.
+The profile screen reads and saves actual authenticated user settings through Go API. Legal identity and residence country changes require Veriff re-verification, which is currently an unconfigured stub. EUR is the only supported account currency.
 
-No JWT is stored in localStorage. The frontend is not authenticated yet and must not be used with real customer data.
+**The home dashboard, card details, transactions, transfer modal and spending insights still contain explicitly illustrative prototype data**. They are not connected to the ledger, cannot move real money and must not be treated as account balances or a production payment interface. Full i18n outside profile, live ledger-backed dashboard, token refresh, production SMS, and external payments remain separate work.
 
-## Next integration step
+## Checks
 
-Implement a Next.js BFF layer with server-side session handling and HttpOnly, Secure, SameSite cookies, then proxy requests to the Go REST API. Keep access and refresh tokens server-side; do not expose them to browser JavaScript. Add CSRF protections and strict cookie/CORS policy before connecting authenticated workflows.
+```bash
+npm run lint
+npm run typecheck
+npm run build
+```
 
-The current Go API accepts Bearer tokens and does not yet issue refresh tokens or set cookies. The BFF needs an explicit backend auth contract before production integration.
+GitHub Actions also builds the Next.js container and tests the onboarding, authentication, profile and API with a PostgreSQL-backed development fixture.
