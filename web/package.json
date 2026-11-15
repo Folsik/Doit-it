@@ -6,13 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
     "next": "^15.1.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "@radix-ui/react-dialog": "^1.1.14",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-switch": "^1.2.5",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
@@ -21,6 +29,8 @@
     "eslint": "^9.17.0",
     "eslint-config-next": "^15.1.4",
     "typescript": "^5.7.2",
-    "@eslint/eslintrc": "^3.2.0"
+    "@eslint/eslintrc": "^3.2.0",
+    "tailwindcss": "^4.1.11",
+    "@tailwindcss/postcss": "^4.1.11"
   }
 }
