@@ -91,6 +91,18 @@ jobs:
           assert user['email'] == credentials['email']
           settings = call('GET', '/api/banking/v1/me/settings')
           assert settings['notifications_security'] is True
+          dashboard = call('GET', '/api/banking/v1/dashboard')
+          accounts = call('GET', '/api/banking/v1/accounts')['items']
+          transactions = call('GET', '/api/banking/v1/transactions?limit=100')['items']
+          assert len(accounts) == 1, 'New development user should own one account'
+          assert all(a['currency'] == 'EUR' and a['balance_minor'] == 0 for a in accounts)
+          assert dashboard['currency'] == 'EUR'
+          assert dashboard['total_balance_minor'] == sum(a['balance_minor'] for a in accounts)
+          assert dashboard['total_balance_minor'] == 0, 'New user must not see demo funds'
+          assert dashboard['incoming_transfers_this_month_minor'] == 0
+          assert dashboard['outgoing_transfers_this_month_minor'] == 0
+          assert dashboard['completed_transfers_this_month'] == 0
+          assert transactions == [], 'New user must not see fabricated transactions'
           updated = call('PUT','/api/banking/v1/me/address',{'address_line1':'42 Example Street','city':'Berlin','postal_code':'10115','address_line2':''})
           assert updated['city'] == 'Berlin'
           updated = call('PUT','/api/banking/v1/me/notifications',{'email':False,'push':True,'security':True})
